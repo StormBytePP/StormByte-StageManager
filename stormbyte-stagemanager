@@ -13,7 +13,7 @@ fi
 
 loadConfig
 
-version="1.1.4"
+version="1.2.0"
 current_folder=`pwd`
 file_list=(`find "${TARBALL_FOLDER}" -type f \( -iname "*.tar.gz" -o -iname "*.tgz" -o -iname "*.tar.bz2" -o -iname "*.tbz2" -o -iname "*.tar.xz" -o -iname "*.txz" -o -iname "*.tar.zstd" -o -iname "*.tzd" \)`)
 tarball_filename_fullpath=""
@@ -23,10 +23,10 @@ tarball=""
 tarball_output=""
 compress=""
 extract=""
-gtar="tar -I 'pigz -9'"
-btar="tar -I 'pbzip2 -9'"
-xtar="tar -I 'pxz -9eT0'"
-zdtar="tar -I 'pzstd -19 -q'"
+gtar="tar -I 'pigz -${GZIP_COMPRESSION_LEVEL}'"
+btar="tar -I 'pbzip2 -${BZIP_COMPRESSION_LEVEL}'"
+xtar="tar -I 'pxz -${XZ_COMPRESSION_LEVEL}eT0'"
+zdtar="tar -I 'pzstd -${ZSTD_COMPRESSION_LEVEL} -q'"
 command="${parameters[0]}"
 tmp_folder=""
 lockfile=""
@@ -157,6 +157,22 @@ function checkVars() {
 	fi
 	if [ ! -f "${TARBALL_NOTE_EDITOR}" ]; then
 		echo "Editor executable is not found"
+		errors=1
+	fi
+	if ! [[ "${GZIP_COMPRESSION_LEVEL}" =~ ^[1-9]$ ]]; then
+		echo "Gzip compression level is not in a range between 1 and 9!"
+		errors=1
+	fi
+	if ! [[ "${BZIP_COMPRESSION_LEVEL}" =~ ^[1-9]$ ]]; then
+		echo "Bzip compression level is not in a range between 1 and 9!"
+		errors=1
+	fi
+	if ! [[ "${XZ_COMPRESSION_LEVEL}" =~ ^[1-9]$ ]]; then
+		echo "Xz compression level is not in a range between 1 and 9!"
+		errors=1
+	fi
+	if ! [[ "${ZSTD_COMPRESSION_LEVEL}" =~ ^[1-9]+$ ]] || ! [ "${ZSTD_COMPRESSION_LEVEL}" -ge 1 -a "${ZSTD_COMPRESSION_LEVEL}" -le 19 ]; then
+		echo "Zstd compression level is not in a range between 1 and 19!"
 		errors=1
 	fi
 	if [ "${errors}" -eq 1 ]; then
