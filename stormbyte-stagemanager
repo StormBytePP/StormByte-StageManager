@@ -13,7 +13,7 @@ fi
 
 loadConfig
 
-version="1.2.0"
+version="1.2.2"
 current_folder=`pwd`
 file_list=(`find "${TARBALL_FOLDER}" -type f \( -iname "*.tar.gz" -o -iname "*.tgz" -o -iname "*.tar.bz2" -o -iname "*.tbz2" -o -iname "*.tar.xz" -o -iname "*.txz" -o -iname "*.tar.zstd" -o -iname "*.tzd" \)`)
 tarball_filename_fullpath=""
@@ -157,6 +157,10 @@ function checkVars() {
 	fi
 	if [ ! -f "${TARBALL_NOTE_EDITOR}" ]; then
 		echo "Editor executable is not found"
+		errors=1
+	fi
+	if [ "${DETACH_NOTE_EDITOR}" != "NO" ] && [ "${DETACH_NOTE_EDITOR}" != "YES" ]; then
+		echo "DETACH_NOTE_EDITOR variable only accepts values YES and NO"
 		errors=1
 	fi
 	if ! [[ "${GZIP_COMPRESSION_LEVEL}" =~ ^[1-9]$ ]]; then
@@ -687,7 +691,13 @@ function doNotes() {
 			handleCommand "rm -f '${tarball_filename_fullpath}.notes'" "Deleting notes for ${tarball}"
 			;;
 		edit)
-			"${TARBALL_NOTE_EDITOR}" "${tarball_filename_fullpath}.notes"
+			echo "Editing notes for `basename ${tarball_filename_fullpath}`"
+			if [ "${DETACH_NOTE_EDITOR}" = "YES" ]; then
+				"${TARBALL_NOTE_EDITOR}" "${tarball_filename_fullpath}.notes" > /dev/null 2>&1 &
+			else
+				"${TARBALL_NOTE_EDITOR}" "${tarball_filename_fullpath}.notes"
+			fi
+			
 			;;
 		*)
 			echo "Unrecognized notes subcommand"
