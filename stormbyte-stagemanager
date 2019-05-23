@@ -13,7 +13,7 @@ fi
 
 loadConfig
 
-version="1.2.3"
+version="1.2.4"
 current_folder=`pwd`
 file_list=(`find "${TARBALL_FOLDER}" -type f \( -iname "*.tar.gz" -o -iname "*.tgz" -o -iname "*.tar.bz2" -o -iname "*.tbz2" -o -iname "*.tar.xz" -o -iname "*.txz" -o -iname "*.tar.zstd" -o -iname "*.tzd" \)`)
 tarball_filename_fullpath=""
@@ -152,6 +152,20 @@ function checkVars() {
 			errors=1
 		fi
 	fi
+	if [ "${STORAGE_SYSTEM}" = "zram" ]; then
+		if ! [ -z "${STORAGE_SYSTEM_ZRAM_COMPRESSION_LEVEL}" ]; then
+			local re="^[0-9]+[MG]$" # For checking storage size
+			if ! [[ "${STORAGE_SIZE}" =~ $re ]]; then
+				echo "STORAGE_SIZE is either empty or invalid, check if its value is correct!"
+				errors=1
+			fi
+			if [ "${STORAGE_SYSTEM_ZRAM_COMPRESSION_LEVEL}" -lt 0 ] || [ "${STORAGE_SYSTEM_ZRAM_COMPRESSION_LEVEL}" -gt 15 ]; then
+				echo "STORAGE_SYSTEM_ZRAM_COMPRESSION_LEVEL has a value which is less than 0 or greater than 15"
+				errors=1
+			fi
+		fi
+	fi
+
 	if [ -z "${TARBALL_FOLDER}" ]; then
 		echo "TARBALL_FOLDER variable is not set or empty!"
 		errors=1
@@ -348,14 +362,20 @@ function mountZRAM() {
 	mkdir -p "${tmp_folder}"
 	zram_device_full=`zramctl -f`
 	zram_device=`basename "${zram_device_full}"`
+	zram_zstd_compression=""
 	if [ -z "${zram_device}" ]; then
 		echo "ERROR: There are no ZRAM devices available";
 		exit 1;
 	fi
+	if [ -z "${STORAGE_SYSTEM_ZRAM_COMPRESSION_LEVEL}" ]; then
+		zram_zstd_compression="zstd"
+	else
+		zram_zstd_compression="zstd:${STORAGE_SYSTEM_ZRAM_COMPRESSION_LEVEL}"
+	fi
 	handleCommand "echo 1 > /sys/block/${zram_device}/reset" "Resetting ZRAM..."
 	handleCommand "echo '${STORAGE_SIZE}' > /sys/block/${zram_device}/disksize" "Setting ZRAM size to ${STORAGE_SIZE}..."
 	handleCommand "mkfs.btrfs ${zram_device_full}" "Initializing ${zram_device} with btrfs..."
-	handleCommand "mount ${zram_device_full} '${tmp_folder}' -o noatime,compress=zstd" "Mounting ${zram_device} storage"
+	handleCommand "mount ${zram_device_full} '${tmp_folder}' -o noatime,compress=${zram_zstd_compression}" "Mounting ${zram_device} storage with compression ${zram_zstd_compression}"
 }
 
 function mountTMPFS() {
