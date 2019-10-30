@@ -13,9 +13,9 @@ fi
 
 loadConfig
 
-version="1.2.4"
+version="1.2.5"
 current_folder=`pwd`
-file_list=(`find "${TARBALL_FOLDER}" -type f \( -iname "*.tar.gz" -o -iname "*.tgz" -o -iname "*.tar.bz2" -o -iname "*.tbz2" -o -iname "*.tar.xz" -o -iname "*.txz" -o -iname "*.tar.zstd" -o -iname "*.tzd" \)`)
+file_list=(`find "${TARBALL_FOLDER}" -type f \( -iname "*.tar.gz" -o -iname "*.tgz" -o -iname "*.tar.bz2" -o -iname "*.tbz2" -o -iname "*.tar.xz" -o -iname "*.txz" -o -iname "*.tar.zstd" -o -iname "*.tzd" \) ! -name 'ccache.txz'`)
 tarball_filename_fullpath=""
 tarball_filename=""
 tarball_extension=""
@@ -35,6 +35,7 @@ available_commands=(list use rebase convert export delete rename download copy h
 available_compression_formats=( gzip bzip2 xz zstd )
 available_compression_extensions=( tar.gz tgz tar.bz2 tbz2 tar.xz txz tar.zstd tzd )
 zram_device=""
+ccache_file="${TARBALL_FOLDER}/ccache.txz"
 
 function header() {
 	echo "StormByte Gentoo Stage Manager Version ${version}"
@@ -192,6 +193,14 @@ function checkVars() {
 	fi
 	if ! [[ "${ZSTD_COMPRESSION_LEVEL}" =~ ^[1-9]+$ ]] || ! [ "${ZSTD_COMPRESSION_LEVEL}" -ge 1 -a "${ZSTD_COMPRESSION_LEVEL}" -le 19 ]; then
 		echo "Zstd compression level is not in a range between 1 and 19!"
+		errors=1
+	fi
+	if [ "${USE_CCACHE}" != "NO" ] && [ "${USE_CCACHE}" != "YES" ]; then
+		echo "Ccache variable is not set to either YES or NO"
+		errors=1
+	fi
+	if [ "${USE_CCACHE}" == "YES" ] && [ -z "${CCACHE_FOLDER}" ]; then
+		echo "CCache has been set to be used but its folder is empty or undefined!"
 		errors=1
 	fi
 	if [ "${errors}" -eq 1 ]; then
@@ -411,6 +420,9 @@ function saveChanges() {
 		reply=$REPLY
 	done
 	if [[ $reply =~ ^[Yy]$ ]]; then
+		if [ "${USE_CCACHE}" == "YES" ]; then
+			undoCcache
+		fi
 		compressArchive
 	fi
 }
@@ -420,6 +432,26 @@ function compressArchive() {
 	cd "${tmp_folder}"
 	handleCommand "${compress} -cpf ${output_folder}/.${tarball_output}.compress . --xattrs-include='*.*' --numeric-owner" "Compressing system files to ${tarball_output}"
 	mv "${output_folder}/.${tarball_output}.compress" "${output_folder}/${tarball_output}"
+}
+
+function doCcache() {
+	if [ "${USE_CCACHE}" == "YES" ]; then
+		mkdir -p "${tmp_folder}/${CCACHE_FOLDER}"
+		if [ -f "${ccache_file}" ]; then
+			local prev_folder=`pwd`
+			cd "${tmp_folder}/${CCACHE_FOLDER}"
+			handleCommand "${xtar} -xpf ${ccache_file} --numeric-owner" "Extracting CCache data"
+			cd "${prev_folder}"
+		fi
+	fi
+}
+
+function undoCcache() {
+	local prev_folder=`pwd`
+	cd "${tmp_folder}/${CCACHE_FOLDER}"
+	handleCommand "${xtar} -cpf ${ccache_file} ." "Compressing CCache data"
+	rm -Rf "${tmp_folder}/${CCACHE_FOLDER}"
+	cd "${prev_folder}"
 }
 
 function doChroot() {
@@ -473,6 +505,7 @@ function doUse() {
 	createTMPFolder
 	mountTEMP
 	extractArchive
+	doCcache
 	mountSystem
 	doChroot
 	unmountSystem
