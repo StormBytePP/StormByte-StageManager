@@ -13,7 +13,7 @@ fi
 
 loadConfig
 
-version="1.2.7"
+version="1.3.0"
 current_folder=`pwd`
 file_list=(`find "${TARBALL_FOLDER}" -maxdepth 1 -type f \( -iname "*.tar.gz" -o -iname "*.tgz" -o -iname "*.tar.bz2" -o -iname "*.tbz2" -o -iname "*.tar.xz" -o -iname "*.txz" -o -iname "*.tar.zstd" -o -iname "*.tzd" \) ! -name 'ccache.txz'`)
 tarball_filename_fullpath=""
@@ -280,7 +280,7 @@ function mountSystem() {
 
 function unmountSystem() {
 	cd "${current_folder}"
-	handleCommand "umount -R ${tmp_folder}/proc && umount -R ${tmp_folder}/dev && umount -R ${tmp_folder}/sys && rm -Rf {tmp_folder}/tmp/* && rm -f ${tmp_folder}/root/.bash_history && rm -f `find /var/log -type f` && rm -f `find /var/tmp -type f`" "Unmounting system structures and cleaning"
+	handleCommand "umount -R ${tmp_folder}/proc && umount -R ${tmp_folder}/dev && umount -R ${tmp_folder}/sys && rm -Rf {tmp_folder}/tmp/* && rm -f ${tmp_folder}/root/.bash_history && rm -f ${tmp_folder}/var/db/repos/portage/packages && rm -f `find /var/log -type f` && rm -f `find /var/tmp -type f`" "Unmounting system structures and cleaning"
 }
 
 function setAndCheckFile() {
