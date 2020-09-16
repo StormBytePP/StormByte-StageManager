@@ -23,10 +23,12 @@ tarball=""
 tarball_output=""
 compress=""
 extract=""
-gtar="tar -I 'pigz -${GZIP_COMPRESSION_LEVEL}'"
-btar="tar -I 'pbzip2 -${BZIP_COMPRESSION_LEVEL}'"
-xtar="tar -I 'pxz -${XZ_COMPRESSION_LEVEL}eT0'"
-zdtar="tar -I 'pzstd -${ZSTD_COMPRESSION_LEVEL} -q'"
+tar_compress="tar -cpf - . --numeric-owner --xattrs-include='*.*'"
+tar_decompress="tar -xpf - --numeric-owner --xattrs-include='*.*'"
+gzip="pigz -${GZIP_COMPRESSION_LEVEL} -c"
+bzip2="pbzip2 -${BZIP_COMPRESSION_LEVEL} -c"
+xz="pxz -${XZ_COMPRESSION_LEVEL}T0 -c"
+zstd="pzstd -${ZSTD_COMPRESSION_LEVEL}q -c"
 command="${parameters[0]}"
 tmp_folder=""
 lockfile=""
@@ -223,19 +225,19 @@ function setOutputFolder() {
 function setDecompression() {
 	case "$1" in
 		tar.gz|tgz|gzip)
-			extract=${gtar}
+			extract="${gzip} -d -"
 			;;
 
 		tar.bz2|tbz2|bzip2)
-			extract=${btar}
+			extract="${bzip2} -d -"
 			;;
 
 		tar.xz|txz|xz)
-			extract=${xtar}
+			extract="${xz} -d -"
 			;;
 
 		tar.zstd|tzd|zstd)
-			extract=${zdtar}
+			extract="${zstd} -d -"
 			;;
 
 		*)
@@ -248,22 +250,22 @@ function setDecompression() {
 function setCompression() {
 	case "$1" in
 		tar.gz|tgz|gzip)
-			compress=${gtar}
+			compress=${gzip}
 			tarball_output="${tarball_filename}.tgz"
 			;;
 
 		tar.bz2|tbz2|bzip2)
-			compress=${btar}
+			compress=${bzip2}
 			tarball_output="${tarball_filename}.tbz2"
 			;;
 
 		tar.xz|txz|xz)
-			compress=${xtar}
+			compress=${xz}
 			tarball_output="${tarball_filename}.txz"
 			;;
 
 		tar.zstd|tzd|zstd)
-			compress=${zdtar}
+			compress=${zstd}
 			tarball_output="${tarball_filename}.tzd"
 			;;
 
@@ -410,7 +412,7 @@ function unmountTMPFS() {
 
 function extractArchive() {
 	cd "${tmp_folder}"
-	handleCommand "${extract} -xpf ${tarball_filename_fullpath} --xattrs-include='*.*' --numeric-owner" "Extracting system files from ${tarball}"
+	handleCommandWithOutput "pv ${tarball_filename_fullpath} | ${extract} | ${tar_decompress}" "Extracting system files from ${tarball}"
 }
 
 function saveChanges() {
@@ -430,7 +432,7 @@ function saveChanges() {
 function compressArchive() {
 	rm -Rf "${tmp_folder}"/tmp/*
 	cd "${tmp_folder}"
-	handleCommand "${compress} -cpf ${output_folder}/.${tarball_output}.compress . --xattrs-include='*.*' --numeric-owner" "Compressing system files to ${tarball_output}"
+	handleCommandWithOutput "${tar_compress} | pv -s $(du -sbl ${tmp_folder} | awk '{print $1}') | ${compress} > ${output_folder}/.${tarball_output}.compress" "Compressing system files to ${tarball_output}"
 	mv "${output_folder}/.${tarball_output}.compress" "${output_folder}/${tarball_output}"
 }
 
