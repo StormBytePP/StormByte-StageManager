@@ -283,7 +283,7 @@ function mountSystem() {
 function unmountSystem() {
 	cd "${current_folder}"
 	handleCommand "umount -R ${tmp_folder}/proc && umount -R ${tmp_folder}/dev && umount -R ${tmp_folder}/sys" "Unmounting system structures"
-	handleCommand "rm -f ${tmp_folder}/var/db/repos/portage/packages && rm -Rf ${tmp_folder}/tmp/*" "Cleaning portage temporary files"
+	handleCommand "rm -Rf ${tmp_folder}/var/db/repos/portage/packages && rm -Rf ${tmp_folder}/tmp/*" "Cleaning portage temporary files"
 	handleCommand "rm -f `find ${tmp_folder}/var/log -type f` && rm -f `find ${tmp_folder}/var/tmp -type f`" "Cleaning logs"
 	handleCommand "rm -f ${tmp_folder}/root/.bash_history" "Cleaning history"
 }
