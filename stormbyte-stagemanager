@@ -297,7 +297,8 @@ function setAndCheckFile() {
 		tarball_filename_fullpath="$1"
 	fi
 
-	if [ ! -f "${tarball_filename_fullpath}" ]; then
+	# If we provided filename by parameter, we skip existance check
+	if [ "$#" -eq 0 ] && [ ! -f "${tarball_filename_fullpath}" ]; then
 		echo "File $tarball_filename_fullpath does not exist"
 		exit 1
 	fi
@@ -423,7 +424,14 @@ function saveChanges() {
 		if [ "${USE_CCACHE}" == "YES" ]; then
 			undoCcache
 		fi
+		# If we came from a rebase request, then we need to temporary set file and revert back for cleaning purposes
+		if [ "$#" -ne 0 ]; then
+			setAndCheckFile "${TARBALL_FOLDER}/${parameters[2]}"
+		fi
 		compressArchive
+		if [ "$#" -ne 0 ]; then
+			setAndCheckFile
+		fi
 	fi
 }
 
@@ -572,8 +580,20 @@ function doRename() {
 }
 
 function doRebase() {
-	doCopy
-	doUse "${TARBALL_FOLDER}/${new_filename}"
+	# doRebase is a special version of do use, but changing the compression method and output file right before save changes, so when saving, new filename and compression method will be used instead
+	setAndCheckFile
+	doLock
+	createTMPFolder
+	mountTEMP
+	extractArchive
+	doCcache
+	mountSystem
+	doChroot
+	unmountSystem
+	saveChanges "${TARBALL_FOLDER}/${parameters[2]}"
+	unmountTEMP
+	deleteTMPFolder
+	doUnlock
 }
 
 function checkDownloadParameters() {
