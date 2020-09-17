@@ -33,7 +33,7 @@ command="${parameters[0]}"
 tmp_folder=""
 lockfile=""
 output_folder=""
-available_commands=(list use rebase convert export delete rename download copy help notes)
+available_commands=(list use rebase convert export delete rename download help notes)
 available_compression_formats=( gzip bzip2 xz zstd )
 available_compression_extensions=( tar.gz tgz tar.bz2 tbz2 tar.xz txz tar.zstd tzd )
 zram_device=""
@@ -127,11 +127,6 @@ function helpDownload() {
 	echo ""
 	echo "x32:"
 	echo "  * default"
-}
-
-function helpCopy() {
-	echo "Usage: $self copy <index> <new_filename>"
-	echo "This command will copy a file identified by its index (see list command) to new_filename under the same path"
 }
 
 function helpNotes() {
@@ -700,13 +695,6 @@ function doDownload() {
 	echo "`basename ${stage_file}` downloaded to ${TARBALL_FOLDER}"
 }
 
-function doCopy() {
-	new_filename=`basename "${parameters[2]}"`	
-	setAndCheckFile
-	checkFileCopy "${tarball_filename_fullpath}" "${new_filename}"
-	handleCommandWithOutput "pv '${tarball_filename_fullpath}' > '${TARBALL_FOLDER}/${new_filename}'" "Copying ${tarball} to ${new_filename}"
-}
-
 function doHelp() {
 	case "${parameters[1]}" in
 		list)
@@ -735,9 +723,6 @@ function doHelp() {
 			;;
 		compression)
 			helpCompression
-			;;
-		copy)
-			helpCopy
 			;;
 		notes)
 			helpNotes
@@ -799,9 +784,6 @@ function doInit() {
 			;;
 		download)
 			doDownload
-			;;
-		copy)
-			doCopy
 			;;
 		help)
 			doHelp
