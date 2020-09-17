@@ -704,7 +704,7 @@ function doCopy() {
 	new_filename=`basename "${parameters[2]}"`	
 	setAndCheckFile
 	checkFileCopy "${tarball_filename_fullpath}" "${new_filename}"
-	handleCommand "cp '${tarball_filename_fullpath}' '${TARBALL_FOLDER}/${new_filename}'" "Rebasing ${tarball} to ${new_filename}"
+	handleCommandWithOutput "pv '${tarball_filename_fullpath}' > '${TARBALL_FOLDER}/${new_filename}'" "Copying ${tarball} to ${new_filename}"
 }
 
 function doHelp() {
