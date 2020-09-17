@@ -410,8 +410,15 @@ function unmountTMPFS() {
 }
 
 function extractArchive() {
+	local text=""
+	# If we provided a parameter then it means we come here by a rebase not a normal use, so we adapt message reflecting this fact
+	if [ "$#" -eq 0 ]; then
+		text="Extracting system files from ${tarball}"
+	else
+		text="Rebasing `basename $1` using system files from ${tarball}"
+	fi
 	cd "${tmp_folder}"
-	handleCommandWithOutput "pv ${tarball_filename_fullpath} | ${extract} | ${tar_decompress}" "Extracting system files from ${tarball}"
+	handleCommandWithOutput "pv ${tarball_filename_fullpath} | ${extract} | ${tar_decompress}" "${text}"
 }
 
 function saveChanges() {
@@ -585,7 +592,7 @@ function doRebase() {
 	doLock
 	createTMPFolder
 	mountTEMP
-	extractArchive
+	extractArchive "${TARBALL_FOLDER}/${parameters[2]}"
 	doCcache
 	mountSystem
 	doChroot
