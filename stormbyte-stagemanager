@@ -13,7 +13,7 @@ fi
 
 loadConfig
 
-version="1.3.5"
+version="1.3.6"
 current_folder=`pwd`
 file_list=(`find "${TARBALL_FOLDER}" -maxdepth 1 -type f \( -iname "*.tar.gz" -o -iname "*.tgz" -o -iname "*.tar.bz2" -o -iname "*.tbz2" -o -iname "*.tar.xz" -o -iname "*.txz" -o -iname "*.tar.zstd" -o -iname "*.tzd" \) ! -name 'ccache.txz'`)
 tarball_filename_fullpath=""
@@ -272,12 +272,12 @@ function setCompression() {
 }
 
 function mountSystem() {
-	handleCommand "mount -t proc /proc ${tmp_folder}/proc && mount --rbind /dev ${tmp_folder}/dev && mount --make-rslave ${tmp_folder}/dev && mount --rbind /sys ${tmp_folder}/sys && mount --make-rslave ${tmp_folder}/sys" "Mounting system structures"
+	handleCommand "mount -t proc /proc ${tmp_folder}/proc && mount --rbind /dev ${tmp_folder}/dev && mount --make-rslave ${tmp_folder}/dev && mount --rbind /sys ${tmp_folder}/sys && mount --make-rslave ${tmp_folder}/sys && mount -t tmpfs ${tmp_folder}/run" "Mounting system structures"
 }
 
 function unmountSystem() {
 	cd "${current_folder}"
-	handleCommand "umount -R ${tmp_folder}/proc && umount -R ${tmp_folder}/dev && umount -R ${tmp_folder}/sys" "Unmounting system structures"
+	handleCommand "umount -R ${tmp_folder}/proc && umount -R ${tmp_folder}/dev && umount -R ${tmp_folder}/sys && umount ${tmp_folder}/run" "Unmounting system structures"
 	handleCommand "rm -Rf ${tmp_folder}/var/db/repos/packages && rm -Rf ${tmp_folder}/tmp/*" "Cleaning portage temporary files"
 	handleCommand "rm -Rf ${tmp_folder}/distfiles/*" "Cleaning distfiles"
 	handleCommand "rm -f `find ${tmp_folder}/var/log -type f` && rm -f `find ${tmp_folder}/var/tmp -type f`" "Cleaning logs"
