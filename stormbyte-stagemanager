@@ -272,7 +272,7 @@ function setCompression() {
 }
 
 function mountSystem() {
-	handleCommand "mount -t proc /proc ${tmp_folder}/proc && mount --rbind /dev ${tmp_folder}/dev && mount --make-rslave ${tmp_folder}/dev && mount --rbind /sys ${tmp_folder}/sys && mount --make-rslave ${tmp_folder}/sys && mount -t tmpfs ${tmp_folder}/run" "Mounting system structures"
+	handleCommand "mount -t proc /proc ${tmp_folder}/proc && mount --rbind /dev ${tmp_folder}/dev && mount --make-rslave ${tmp_folder}/dev && mount --rbind /sys ${tmp_folder}/sys && mount --make-rslave ${tmp_folder}/sys && mount -t tmpfs tmpfs ${tmp_folder}/run" "Mounting system structures"
 }
 
 function unmountSystem() {
