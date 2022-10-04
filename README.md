@@ -23,3 +23,5 @@ stormbyte-stagemanager help
 ```
 
 Please remember to fill stormbyte-stagemanager.conf file prior its usage!
+
+Hint: If you "use" a Gentoo tarball, you will be automatically chrooted into it, once you type ```exit``` chroot will end and you will be prompted to save or discard your changes.
