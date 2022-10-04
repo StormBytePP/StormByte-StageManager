@@ -13,6 +13,9 @@ Configuration based (depends on the chosen compression algorithm)
 * pxz
 * zstd
 
+Depending on the storage methos:
+* zram
+
 A detailed help is available by calling the script with help command, like
 
 ```bash
