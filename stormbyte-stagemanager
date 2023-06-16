@@ -13,7 +13,7 @@ fi
 
 loadConfig
 
-version="1.4.0"
+version="1.4.1"
 current_folder=`pwd`
 file_list=(`find "${TARBALL_FOLDER}" -maxdepth 1 -type f \( -iname "*.tar.gz" -o -iname "*.tgz" -o -iname "*.tar.bz2" -o -iname "*.tbz2" -o -iname "*.tar.xz" -o -iname "*.txz" -o -iname "*.tar.zstd" -o -iname "*.tzd" \) ! -name 'ccache.txz'`)
 tarball_filename_fullpath=""
@@ -388,6 +388,12 @@ function unmountTEMP() {
 	esac
 }
 
+function readonlyTEMP() {
+	if [ "${STORAGE_SYSTEM}" != "folder" ]; then
+		handleCommand "mount -o remount,ro ${tmp_folder}" "Making stage filesystem readonly"
+	fi
+}
+
 function mountFOLDER() {
 	mkdir -p "${tmp_folder}"
 }
@@ -563,6 +569,7 @@ function doUse() {
 	doChroot
 	unmountSystem
 	unmountCCache
+	readonlyTEMP
 	saveChanges
 	unmountTEMP
 	deleteTMPFolder
@@ -577,6 +584,7 @@ function doConvert() {
 	createTMPFolder
 	mountTEMP
 	extractArchive
+	readonlyTEMP
 	compressArchive
 	unmountTEMP
 	deleteTMPFolder
@@ -604,6 +612,7 @@ function doExport() {
 	createTMPFolder
 	mountTEMP
 	extractArchive
+	readonlyTEMP
 	compressArchive
 	unmountTEMP
 	deleteTMPFolder
@@ -639,6 +648,7 @@ function doRebase() {
 	doChroot
 	unmountSystem
 	unmountCCache
+	readonlyTEMP
 	saveChanges "${TARBALL_FOLDER}/${parameters[2]}"
 	unmountTEMP
 	deleteTMPFolder
