@@ -353,7 +353,7 @@ function checkFileCopy() {
 }
 
 function createTMPFolder() {
-	handleCommand "tmp_folder=`mktemp -d --suffix \"-${tarball_filename}\"`" "Creating temporary folder"
+	handleCommand "tmp_folder=`mktemp -d -t \"tmp.${tarball_filename}.XXXXXXXX\"`" "Creating temporary folder"
 }
 
 function deleteTMPFolder() {
