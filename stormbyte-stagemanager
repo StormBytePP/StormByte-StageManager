@@ -13,7 +13,7 @@ fi
 
 loadConfig
 
-version="1.4.1"
+version="1.4.2"
 current_folder=`pwd`
 file_list=(`find "${TARBALL_FOLDER}" -maxdepth 1 -type f \( -iname "*.tar.gz" -o -iname "*.tgz" -o -iname "*.tar.bz2" -o -iname "*.tbz2" -o -iname "*.tar.xz" -o -iname "*.txz" -o -iname "*.tar.zstd" -o -iname "*.tzd" \) ! -name 'ccache.txz'`)
 tarball_filename_fullpath=""
@@ -299,7 +299,10 @@ function mountSystem() {
 
 function unmountSystem() {
 	cd "${current_folder}"
-	handleCommand "umount -R ${tmp_folder}/proc && umount -R ${tmp_folder}/dev && umount -R ${tmp_folder}/sys && umount ${tmp_folder}/run" "Unmounting system structures"
+	handleCommand "umount -Rl ${tmp_folder}/proc && umount -Rl ${tmp_folder}/dev && umount -Rl ${tmp_folder}/sys && umount -l ${tmp_folder}/run" "Unmounting system structures"
+}
+
+function cleanStage() {
 	handleCommand "rm -Rf ${tmp_folder}/var/db/repos/packages && rm -Rf ${tmp_folder}/tmp/*" "Cleaning portage temporary files"
 	handleCommand "rm -Rf ${tmp_folder}/distfiles/*" "Cleaning distfiles"
 	# It might happen that there are no log or no /var/tmp files in which case cleaning will fail so we do it safely
@@ -437,7 +440,7 @@ function unmountFOLDER() {
 
 function unmountZRAM() {
 	cd "${current_folder}"
-	handleCommand "umount -R ${tmp_folder}" "Unmounting ${zram_device} storage"
+	handleCommand "umount -Rl ${tmp_folder}" "Unmounting ${zram_device} storage"
 	handleCommand "echo 1 > /sys/block/${zram_device}/reset" "Deactivating ${zram_device}..."
 }
 
@@ -568,6 +571,7 @@ function doUse() {
 	mountSystem
 	doChroot
 	unmountSystem
+	cleanStage
 	unmountCCache
 	readonlyTEMP
 	saveChanges
@@ -647,6 +651,7 @@ function doRebase() {
 	mountSystem
 	doChroot
 	unmountSystem
+	cleanStage
 	unmountCCache
 	readonlyTEMP
 	saveChanges "${TARBALL_FOLDER}/${parameters[2]}"
