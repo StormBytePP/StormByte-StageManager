@@ -13,7 +13,7 @@ fi
 
 loadConfig
 
-version="1.4.2"
+version="1.4.3"
 current_folder=`pwd`
 file_list=(`find "${TARBALL_FOLDER}" -maxdepth 1 -type f \( -iname "*.tar.gz" -o -iname "*.tgz" -o -iname "*.tar.bz2" -o -iname "*.tbz2" -o -iname "*.tar.xz" -o -iname "*.txz" -o -iname "*.tar.zstd" -o -iname "*.tzd" \) ! -name 'ccache.txz'`)
 tarball_filename_fullpath=""
@@ -220,6 +220,12 @@ function checkVars() {
 			fi
 		fi
 	fi
+	if [ -z "${BTRFS_CHECKSUM}" ]; then
+		BTRFS_CHECKSUM="crc32c"
+		elif [ "${BTRFS_CHECKSUM}" != "crc32c" ] && [ "${BTRFS_CHECKSUM}" != "xxhash" ] && [ "${BTRFS_CHECKSUM}" != "sha256" ] && [ "${BTRFS_CHECKSUM}" != "blake2" ]; then
+			echo "BTRFS_CHECKSUM value ${BTRFS_CHECKSUM} is invalid, valid values are: crc32c, xxhash, sha256 and blake2"
+			errors=1
+	fi
 	if [ "${errors}" -eq 1 ]; then
 		exit 1
 	fi
@@ -417,7 +423,7 @@ function mountZRAM() {
 	fi
 	handleCommand "echo 1 > /sys/block/${zram_device}/reset" "Resetting ZRAM..."
 	handleCommand "echo '${STORAGE_SIZE}' > /sys/block/${zram_device}/disksize" "Setting ZRAM size to ${STORAGE_SIZE}..."
-	handleCommand "mkfs.btrfs ${zram_device_full}" "Initializing ${zram_device} with btrfs..."
+	handleCommand "mkfs.btrfs --checksum ${BTRFS_CHECKSUM} ${zram_device_full}" "Initializing ${zram_device} with btrfs..."
 	handleCommand "mount ${zram_device_full} '${tmp_folder}' -o noatime,compress=${zram_zstd_compression}" "Mounting ${zram_device} storage with compression ${zram_zstd_compression}"
 }
 
