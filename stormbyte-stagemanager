@@ -13,7 +13,7 @@ fi
 
 loadConfig
 
-version="1.4.5"
+version="1.5.0"
 current_folder=`pwd`
 file_list=(`find "${TARBALL_FOLDER}" -maxdepth 1 -type f \( -iname "*.tar.gz" -o -iname "*.tgz" -o -iname "*.tar.bz2" -o -iname "*.tbz2" -o -iname "*.tar.xz" -o -iname "*.txz" -o -iname "*.tar.zstd" -o -iname "*.tzd" \) ! -name 'ccache.txz'`)
 tarball_filename_fullpath=""
@@ -216,6 +216,27 @@ function checkVars() {
 				errors=1
 			elif [ ! -d "${CCACHE_IN_FOLDER}" ]; then
 				echo "Ccache input folder ${CCACHE_IN_FOLDER} does NOT exist"
+				errors=1
+			fi
+		fi
+	fi
+	if [ "${USE_PKGDIR_BIND}" != "NO" ] && [ "${USE_PKGDIR_BIND}" != "YES" ]; then
+		echo "PKG dir bind variable is not set to either YES or NO"
+		errors=1
+	fi
+	if [ "${USE_PKGDIR_BIND}" == "YES" ]; then
+			if [ -z "${PKGDIR_IN_FOLDER}" ]; then
+				echo "PKG dir input folder variable for binding is empty or undefined!"
+				errors=1
+			elif [ ! -d "${PKGDIR_IN_FOLDER}" ]; then
+				echo "PKG dir input folder ${PKGDIR_IN_FOLDER} does NOT exist"
+				errors=1
+			fi
+			if [ -z "${PKGDIR_OUT_FOLDER}" ]; then
+				echo "PKG dir out folder variable for binding is empty or undefined!"
+				errors=1
+			elif [ ! -d "${PKGDIR_OUT_FOLDER}" ]; then
+				echo "PKG dir out folder ${PKGDIR_OUT_FOLDER} does NOT exist"
 				errors=1
 			fi
 		fi
@@ -439,6 +460,13 @@ function mountCCache() {
 	fi
 }
 
+function mountPKGdir() {
+	if [ "${USE_PKGDIR_BIND}" == "YES" ]; then
+		mkdir -p "${tmp_folder}${PKGDIR_OUT_FOLDER}"
+		handleCommand "mount --bind ${PKGDIR_IN_FOLDER} ${tmp_folder}${PKGDIR_OUT_FOLDER}" "Mounting PKG storage"
+	fi
+}
+
 function unmountFOLDER() {
 	cd "${current_folder}"
 	# This is a NO OP function as it will be just deleted later
@@ -460,6 +488,13 @@ function unmountCCache() {
 	cd "${current_folder}"
 	if [ "${USE_CCACHE_BIND}" == "YES" ]; then
 		handleCommand "umount ${tmp_folder}${CCACHE_OUT_FOLDER}" "Unmounting CCache storage"
+	fi
+}
+
+function unmountPKGdir() {
+	cd "${current_folder}"
+	if [ "${USE_PKGDIR_BIND}" == "YES" ]; then
+		handleCommand "umount ${tmp_folder}${PKGDIR_OUT_FOLDER}" "Unmounting PKG storage"
 	fi
 }
 
@@ -574,12 +609,14 @@ function doUse() {
 	mountTEMP
 	extractArchive
 	mountCCache
+	mountPKGdir
 	doCcache
 	mountSystem
 	doChroot
 	unmountSystem
 	cleanStage
 	unmountCCache
+	unmountPKGdir
 	readonlyTEMP
 	saveChanges
 	unmountTEMP
@@ -654,12 +691,14 @@ function doRebase() {
 	mountTEMP
 	extractArchive "${TARBALL_FOLDER}/${parameters[2]}"
 	mountCCache
+	mountPKGdir
 	doCcache
 	mountSystem
 	doChroot
 	unmountSystem
 	cleanStage
 	unmountCCache
+	unmountPKGdir
 	readonlyTEMP
 	saveChanges "${TARBALL_FOLDER}/${parameters[2]}"
 	unmountTEMP
