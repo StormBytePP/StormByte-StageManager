@@ -13,7 +13,7 @@ fi
 
 loadConfig
 
-version="1.5.0"
+version="2.0.0"
 current_folder=`pwd`
 file_list=(`find "${TARBALL_FOLDER}" -maxdepth 1 -type f \( -iname "*.tar.gz" -o -iname "*.tgz" -o -iname "*.tar.bz2" -o -iname "*.tbz2" -o -iname "*.tar.xz" -o -iname "*.txz" -o -iname "*.tar.zstd" -o -iname "*.tzd" \) ! -name 'ccache.txz'`)
 tarball_filename_fullpath=""
@@ -193,54 +193,39 @@ function checkVars() {
 		echo "Zstd compression level is not in a range between 1 and 19!"
 		errors=1
 	fi
-	if [ "${USE_CCACHE_FILE}" == "YES" ] && [ "${USE_CCACHE_BIND}" == "YES" ]; then
-		echo "Both file and bind options for ccache are enabled whether only one must be"
-		errors=1
-	fi
-	if [ "${USE_CCACHE_FILE}" != "NO" ] && [ "${USE_CCACHE_FILE}" != "YES" ]; then
-		echo "Ccache file variable is not set to either YES or NO"
-		errors=1
-	fi
 	if [ "${USE_CCACHE_BIND}" != "NO" ] && [ "${USE_CCACHE_BIND}" != "YES" ]; then
 		echo "Ccache bind variable is not set to either YES or NO"
 		errors=1
 	fi
-	if [ "${USE_CCACHE_FILE}" == "YES" ] || [ "${USE_CCACHE_BIND}" == "YES" ]; then
-		if [ -z "${CCACHE_OUT_FOLDER}" ]; then
-			echo "Ccache output folder variable is empty or undefined!"
-			errors=1
-		fi
-		if [ "${USE_CCACHE_BIND}" == "YES" ]; then
-			if [ -z "${CCACHE_IN_FOLDER}" ]; then
-				echo "Ccache input folder variable for binding is empty or undefined!"
-				errors=1
-			elif [ ! -d "${CCACHE_IN_FOLDER}" ]; then
-				echo "Ccache input folder ${CCACHE_IN_FOLDER} does NOT exist"
-				errors=1
-			fi
-		fi
+	if [ -z "${CCACHE_DIR}" ]; then
+		echo "Ccache folder variable is empty or undefined!"
+		errors=1
+	elif [ ! -d "${CCACHE_DIR}" ]; then
+		echo "Ccache folder ${CCACHE_DIR} does NOT exist"
+		errors=1
 	fi
-	if [ "${USE_PKGDIR_BIND}" != "NO" ] && [ "${USE_PKGDIR_BIND}" != "YES" ]; then
+	if [ "${USE_PKG_BIND}" != "NO" ] && [ "${USE_PKG_BIND}" != "YES" ]; then
 		echo "PKG dir bind variable is not set to either YES or NO"
 		errors=1
 	fi
-	if [ "${USE_PKGDIR_BIND}" == "YES" ]; then
-		if [ -z "${PKGDIR_IN_FOLDER}" ]; then
-			echo "PKG dir input folder variable for binding is empty or undefined!"
-			errors=1
-		elif [ ! -d "${PKGDIR_IN_FOLDER}" ]; then
-			echo "PKG dir input folder ${PKGDIR_IN_FOLDER} does NOT exist"
-			errors=1
-		fi
-		if [ -z "${PKGDIR_OUT_FOLDER}" ]; then
-			echo "PKG dir out folder variable for binding is empty or undefined!"
-			errors=1
-		elif [ ! -d "${PKGDIR_OUT_FOLDER}" ]; then
-			echo "PKG dir out folder ${PKGDIR_OUT_FOLDER} does NOT exist"
-			errors=1
-		fi
+	if [ -z "${PKG_DIR}" ]; then
+		echo "PKG folder variable is empty or undefined!"
+		errors=1
+	elif [ ! -d "${PKG_DIR}" ]; then
+		echo "PKG folder ${PKG_DIR} does NOT exist"
+		errors=1
 	fi
-
+	if [ "${USE_DISTFILES_BIND}" != "NO" ] && [ "${USE_DISTFILES_BIND}" != "YES" ]; then
+		echo "Distfiles bind variable is not set to either YES or NO"
+		errors=1
+	fi
+	if [ -z "${DISTFILES_DIR}" ]; then
+		echo "Distfiles folder variable is empty or undefined!"
+		errors=1
+	elif [ ! -d "${DISTFILES_DIR}" ]; then
+		echo "Distfiles folder ${DISTFILES_DIR} does NOT exist"
+		errors=1
+	fi
 	if [ -z "${BTRFS_CHECKSUM}" ]; then
 		BTRFS_CHECKSUM="crc32c"
 		elif [ "${BTRFS_CHECKSUM}" != "crc32c" ] && [ "${BTRFS_CHECKSUM}" != "xxhash" ] && [ "${BTRFS_CHECKSUM}" != "sha256" ] && [ "${BTRFS_CHECKSUM}" != "blake2" ]; then
@@ -330,7 +315,7 @@ function unmountSystem() {
 }
 
 function cleanStage() {
-	handleCommand "rm -Rf ${tmp_folder}/var/db/repos/packages && rm -Rf ${tmp_folder}/tmp/*" "Cleaning portage temporary files"
+	handleCommand "rm -Rf ${tmp_folder}/var/db/repos/packages/* && rm -Rf ${tmp_folder}/tmp/*" "Cleaning portage temporary files"
 	handleCommand "rm -Rf ${tmp_folder}/distfiles/*" "Cleaning distfiles"
 	# It might happen that there are no log or no /var/tmp files in which case cleaning will fail so we do it safely
 	handleCommand "find ${tmp_folder}/var/log -type f -exec rm -f {} \; && find ${tmp_folder}/var/tmp -type f -exec rm -f {} \;" "Cleaning logs"
@@ -453,17 +438,30 @@ function mountTMPFS() {
 	handleCommand "mount -t tmpfs -o size=${STORAGE_SIZE} tmpfs ${tmp_folder} -o nr_inodes=0" "Mounting tmpfs storage"
 }
 
-function mountCCache() {
-	if [ "${USE_CCACHE_BIND}" == "YES" ]; then
-		mkdir -p "${tmp_folder}${CCACHE_OUT_FOLDER}"
-		handleCommand "mount --bind ${CCACHE_IN_FOLDER} ${tmp_folder}${CCACHE_OUT_FOLDER}" "Mounting CCache storage"
+function mountPKG() {
+	mkdir -p "${tmp_folder}${PKG_DIR}"
+	touch "${tmp_folder}${PKG_DIR}/.keep"
+
+	if [ "${USE_PKG_BIND}" == "YES" ]; then
+		handleCommand "mount --bind ${PKG_DIR} ${tmp_folder}${PKG_DIR}" "Mounting PKG storage"
 	fi
 }
 
-function mountPKGdir() {
-	if [ "${USE_PKGDIR_BIND}" == "YES" ]; then
-		mkdir -p "${tmp_folder}${PKGDIR_OUT_FOLDER}"
-		handleCommand "mount --bind ${PKGDIR_IN_FOLDER} ${tmp_folder}${PKGDIR_OUT_FOLDER}" "Mounting PKG storage"
+function mountDistfiles() {
+	mkdir -p "${tmp_folder}${DISTFILES_DIR}"
+	touch "${tmp_folder}${DISTFILES_DIR}/.keep"
+
+	if [ "${USE_DISTFILES_BIND}" == "YES" ]; then
+		handleCommand "mount --bind ${DISTFILES_DIR} ${tmp_folder}${DISTFILES_DIR}" "Mounting CCache storage"
+	fi
+}
+
+function mountCCache() {
+	mkdir -p "${tmp_folder}${CCACHE_DIR}"
+	touch "${tmp_folder}${CCACHE_DIR}/.keep"
+
+	if [ "${USE_CCACHE_BIND}" == "YES" ]; then
+		handleCommand "mount --bind ${CCACHE_DIR} ${tmp_folder}${CCACHE_DIR}" "Mounting CCache storage"
 	fi
 }
 
@@ -484,17 +482,24 @@ function unmountTMPFS() {
 	handleCommand "umount -R ${tmp_folder}" "Unmounting tmpfs storage"
 }
 
-function unmountCCache() {
+function unmountPKG() {
 	cd "${current_folder}"
-	if [ "${USE_CCACHE_BIND}" == "YES" ]; then
-		handleCommand "umount ${tmp_folder}${CCACHE_OUT_FOLDER}" "Unmounting CCache storage"
+	if [ "${USE_PKG_BIND}" == "YES" ]; then
+		handleCommand "umount ${tmp_folder}${PKG_DIR}" "Unmounting CCache storage"
 	fi
 }
 
-function unmountPKGdir() {
+function unmountDistfiles() {
 	cd "${current_folder}"
-	if [ "${USE_PKGDIR_BIND}" == "YES" ]; then
-		handleCommand "umount ${tmp_folder}${PKGDIR_OUT_FOLDER}" "Unmounting PKG storage"
+	if [ "${USE_DISTFILES_BIND}" == "YES" ]; then
+		handleCommand "umount ${tmp_folder}${DISTFILES_DIR}" "Unmounting CCache storage"
+	fi
+}
+
+function unmountCCache() {
+	cd "${current_folder}"
+	if [ "${USE_CCACHE_BIND}" == "YES" ]; then
+		handleCommand "umount ${tmp_folder}${CCACHE_DIR}" "Unmounting CCache storage"
 	fi
 }
 
@@ -608,15 +613,17 @@ function doUse() {
 	createTMPFolder
 	mountTEMP
 	extractArchive
+	mountPKG
+	mountDistfiles
 	mountCCache
-	mountPKGdir
 	doCcache
 	mountSystem
 	doChroot
 	unmountSystem
 	cleanStage
 	unmountCCache
-	unmountPKGdir
+	unmountDistfiles
+	unmountPKG
 	readonlyTEMP
 	saveChanges
 	unmountTEMP
@@ -690,15 +697,17 @@ function doRebase() {
 	createTMPFolder
 	mountTEMP
 	extractArchive "${TARBALL_FOLDER}/${parameters[2]}"
+	mountPKG
+	mountDistfiles
 	mountCCache
-	mountPKGdir
 	doCcache
 	mountSystem
 	doChroot
 	unmountSystem
 	cleanStage
 	unmountCCache
-	unmountPKGdir
+	unmountDistfiles
+	unmountPKG
 	readonlyTEMP
 	saveChanges "${TARBALL_FOLDER}/${parameters[2]}"
 	unmountTEMP
