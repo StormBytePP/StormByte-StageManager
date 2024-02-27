@@ -225,22 +225,22 @@ function checkVars() {
 		errors=1
 	fi
 	if [ "${USE_PKGDIR_BIND}" == "YES" ]; then
-			if [ -z "${PKGDIR_IN_FOLDER}" ]; then
-				echo "PKG dir input folder variable for binding is empty or undefined!"
-				errors=1
-			elif [ ! -d "${PKGDIR_IN_FOLDER}" ]; then
-				echo "PKG dir input folder ${PKGDIR_IN_FOLDER} does NOT exist"
-				errors=1
-			fi
-			if [ -z "${PKGDIR_OUT_FOLDER}" ]; then
-				echo "PKG dir out folder variable for binding is empty or undefined!"
-				errors=1
-			elif [ ! -d "${PKGDIR_OUT_FOLDER}" ]; then
-				echo "PKG dir out folder ${PKGDIR_OUT_FOLDER} does NOT exist"
-				errors=1
-			fi
+		if [ -z "${PKGDIR_IN_FOLDER}" ]; then
+			echo "PKG dir input folder variable for binding is empty or undefined!"
+			errors=1
+		elif [ ! -d "${PKGDIR_IN_FOLDER}" ]; then
+			echo "PKG dir input folder ${PKGDIR_IN_FOLDER} does NOT exist"
+			errors=1
+		fi
+		if [ -z "${PKGDIR_OUT_FOLDER}" ]; then
+			echo "PKG dir out folder variable for binding is empty or undefined!"
+			errors=1
+		elif [ ! -d "${PKGDIR_OUT_FOLDER}" ]; then
+			echo "PKG dir out folder ${PKGDIR_OUT_FOLDER} does NOT exist"
+			errors=1
 		fi
 	fi
+
 	if [ -z "${BTRFS_CHECKSUM}" ]; then
 		BTRFS_CHECKSUM="crc32c"
 		elif [ "${BTRFS_CHECKSUM}" != "crc32c" ] && [ "${BTRFS_CHECKSUM}" != "xxhash" ] && [ "${BTRFS_CHECKSUM}" != "sha256" ] && [ "${BTRFS_CHECKSUM}" != "blake2" ]; then
