@@ -620,10 +620,10 @@ function doUse() {
 	mountSystem
 	doChroot
 	unmountSystem
-	cleanStage
 	unmountCCache
 	unmountDistfiles
 	unmountPKG
+	cleanStage
 	readonlyTEMP
 	saveChanges
 	unmountTEMP
@@ -704,10 +704,10 @@ function doRebase() {
 	mountSystem
 	doChroot
 	unmountSystem
-	cleanStage
 	unmountCCache
 	unmountDistfiles
 	unmountPKG
+	cleanStage
 	readonlyTEMP
 	saveChanges "${TARBALL_FOLDER}/${parameters[2]}"
 	unmountTEMP
