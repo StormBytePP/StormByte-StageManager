@@ -475,7 +475,7 @@ function unmountZRAM() {
 	handleCommand "umount -Rl ${tmp_folder}" "Unmounting ${zram_device} storage"
 	handleCommand "rm -Rf ${tmp_folder}" "Deleting rest of unused data"
 	handleCommand "sync" "Flushing data"
-	handleCommand "echo 1 > /sys/block/${zram_device}/reset" "Deactivating ${zram_device}..."
+	handleCommand "echo 1 > /sys/block/${zram_device}/reset" "Deactivating ${zram_device}"
 }
 
 function unmountTMPFS() {
