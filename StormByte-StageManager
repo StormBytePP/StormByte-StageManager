@@ -13,7 +13,7 @@ fi
 
 loadConfig
 
-version="2.1.2"
+version="2.2.0"
 current_folder=`pwd`
 file_list=(`find "${TARBALL_FOLDER}" -maxdepth 1 -type f \( -iname "*.tar.gz" -o -iname "*.tgz" -o -iname "*.tar.bz2" -o -iname "*.tbz2" -o -iname "*.tar.xz" -o -iname "*.txz" -o -iname "*.tar.zstd" -o -iname "*.tzd" \) ! -name 'ccache.txz'`)
 tarball_filename_fullpath=""
@@ -25,9 +25,21 @@ compress=""
 extract=""
 tar_compress="tar -cpf - . --numeric-owner --xattrs-include='*.*' --ignore-failed-read"
 tar_decompress="tar -xpf - --numeric-owner --xattrs-include='*.*'"
-gzip="pigz -${GZIP_COMPRESSION_LEVEL} -c"
-bzip2="pbzip2 -${BZIP_COMPRESSION_LEVEL} -c"
-xz="pxz -${XZ_COMPRESSION_LEVEL}T0 -c"
+if [ -f /usr/bin/pigz ]; then
+	gzip="pigz -${GZIP_COMPRESSION_LEVEL} -c"
+else
+	gzip="gzip2 -${GZIP_COMPRESSION_LEVEL} -c"
+fi
+if [ -f /usr/bin/pbzip2 ]; then
+	bzip2="pbzip2 -${BZIP_COMPRESSION_LEVEL} -c"
+else
+	bzip2="bzip2 -${BZIP_COMPRESSION_LEVEL} -c"
+fi
+if [ -f /usr/bin/pxz ]; then
+	xz="pxz -${XZ_COMPRESSION_LEVEL}T0 -c"
+else
+	xz="xz -${XZ_COMPRESSION_LEVEL}T0 -c"
+fi
 zstd="pzstd -${ZSTD_COMPRESSION_LEVEL}q -c"
 command="${parameters[0]}"
 tmp_folder=""
