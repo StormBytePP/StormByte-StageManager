@@ -13,7 +13,7 @@ fi
 
 loadConfig
 
-version="2.2.0"
+version="2.3.0"
 current_folder=`pwd`
 file_list=(`find "${TARBALL_FOLDER}" -maxdepth 1 -type f \( -iname "*.tar.gz" -o -iname "*.tgz" -o -iname "*.tar.bz2" -o -iname "*.tbz2" -o -iname "*.tar.xz" -o -iname "*.txz" -o -iname "*.tar.zstd" -o -iname "*.tzd" \) ! -name 'ccache.txz'`)
 tarball_filename_fullpath=""
@@ -209,12 +209,18 @@ function checkVars() {
 		echo "Ccache bind variable is not set to either YES or NO"
 		errors=1
 	fi
-	if [ -z "${CCACHE_DIR}" ]; then
-		echo "Ccache folder variable is empty or undefined!"
+	if [ "${USE_CCACHE}" != "NO" ] && [ "${USE_CCACHE}" != "YES" ]; then
+		echo "Use ccache variable is not set to either YES or NO"
 		errors=1
-	elif [ ! -d "${CCACHE_DIR}" ]; then
-		echo "Ccache folder ${CCACHE_DIR} does NOT exist"
-		errors=1
+	fi
+	if [ "${USE_CCACHE}" != "YES" ]; then
+		if [ -z "${CCACHE_DIR}" ]; then
+			echo "Ccache folder variable is empty or undefined!"
+			errors=1
+		elif [ ! -d "${CCACHE_DIR}" ]; then
+			echo "Ccache folder ${CCACHE_DIR} does NOT exist"
+			errors=1
+		fi
 	fi
 	if [ "${USE_PKG_BIND}" != "NO" ] && [ "${USE_PKG_BIND}" != "YES" ]; then
 		echo "PKG dir bind variable is not set to either YES or NO"
@@ -328,7 +334,10 @@ function unmountSystem() {
 
 function cleanStage() {
 	handleCommand "rm -Rf ${tmp_folder}/tmp/* ${tmp_folder}/var/tmp/portage" "Cleaning portage temporary files"
-	handleCommand "rm -Rf ${tmp_folder}{${CCACHE_DIR},${PKG_DIR},${DISTFILES_DIR}}/*" "Cleaning files"
+	handleCommand "rm -Rf ${tmp_folder}{${PKG_DIR},${DISTFILES_DIR}}/*" "Cleaning files"
+	if [ "${USE_CCACHE}" != "YES" ]; then
+		handleCommand "rm -Rf ${tmp_folder}${CCACHE_DIR}/*" "Cleaning files"
+	fi
 	# It might happen that there are no log or no /var/tmp files in which case cleaning will fail so we do it safely
 	handleCommand "find ${tmp_folder}/var/log -type f -exec rm -f {} \; && find ${tmp_folder}/var/tmp -type f -exec rm -f {} \;" "Cleaning logs"
 	handleCommand "rm -f ${tmp_folder}/root/.bash_history" "Cleaning history"
@@ -469,11 +478,13 @@ function mountDistfiles() {
 }
 
 function mountCCache() {
-	mkdir -p "${tmp_folder}${CCACHE_DIR}"
-	touch "${tmp_folder}${CCACHE_DIR}/.keep"
+	if [ "${USE_CCACHE}" == "YES" ]; then
+		mkdir -p "${tmp_folder}${CCACHE_DIR}"
+		touch "${tmp_folder}${CCACHE_DIR}/.keep"
 
-	if [ "${USE_CCACHE_BIND}" == "YES" ]; then
-		handleCommand "mount --bind ${CCACHE_DIR} ${tmp_folder}${CCACHE_DIR}" "Mounting CCache storage"
+		if [ "${USE_CCACHE_BIND}" == "YES" ]; then
+			handleCommand "mount --bind ${CCACHE_DIR} ${tmp_folder}${CCACHE_DIR}" "Mounting CCache storage"
+		fi
 	fi
 }
 
@@ -510,9 +521,11 @@ function unmountDistfiles() {
 }
 
 function unmountCCache() {
-	cd "${current_folder}"
-	if [ "${USE_CCACHE_BIND}" == "YES" ]; then
-		handleCommand "umount ${tmp_folder}${CCACHE_DIR}" "Unmounting CCache storage"
+	if [ "${USE_CCACHE}" == "YES" ]; then
+		cd "${current_folder}"
+		if [ "${USE_CCACHE_BIND}" == "YES" ]; then
+			handleCommand "umount ${tmp_folder}${CCACHE_DIR}" "Unmounting CCache storage"
+		fi
 	fi
 }
 
