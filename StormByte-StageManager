@@ -13,7 +13,7 @@ fi
 
 loadConfig
 
-version="2.3.0"
+version="2.3.1"
 current_folder=`pwd`
 file_list=(`find "${TARBALL_FOLDER}" -maxdepth 1 -type f \( -iname "*.tar.gz" -o -iname "*.tgz" -o -iname "*.tar.bz2" -o -iname "*.tbz2" -o -iname "*.tar.xz" -o -iname "*.txz" -o -iname "*.tar.zstd" -o -iname "*.tzd" \) ! -name 'ccache.txz'`)
 tarball_filename_fullpath=""
@@ -213,7 +213,7 @@ function checkVars() {
 		echo "Use ccache variable is not set to either YES or NO"
 		errors=1
 	fi
-	if [ "${USE_CCACHE}" != "YES" ]; then
+	if [ "${USE_CCACHE}" != "NO" ]; then
 		if [ -z "${CCACHE_DIR}" ]; then
 			echo "Ccache folder variable is empty or undefined!"
 			errors=1
