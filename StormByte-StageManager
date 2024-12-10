@@ -13,7 +13,7 @@ fi
 
 loadConfig
 
-version="3.0.0"
+version="3.0.1"
 current_folder=`pwd`
 file_list=(`find "${TARBALL_FOLDER}" -maxdepth 1 -type f \( -iname "*.tar.gz" -o -iname "*.tgz" -o -iname "*.tar.bz2" -o -iname "*.tbz2" -o -iname "*.tar.xz" -o -iname "*.txz" -o -iname "*.tar.zstd" -o -iname "*.tzd" \) ! -name 'ccache.txz'`)
 tarball_filename_fullpath=""
@@ -324,7 +324,7 @@ function setCompression() {
 }
 
 function mountSystem() {
-	handleCommand "mount -t proc /proc ${tmp_folder}/proc && mount --rbind /dev ${tmp_folder}/dev && mount --make-rslave ${tmp_folder}/dev && mount --rbind /sys ${tmp_folder}/sys && mount --make-rslave ${tmp_folder}/sys && mount -t tmpfs tmpfs ${tmp_folder}/run" "Mounting system structures"
+	handleCommand "mount -t proc /proc ${tmp_folder}/proc && mount --rbind /dev ${tmp_folder}/dev && mount --make-rslave ${tmp_folder}/dev && mount --rbind /sys ${tmp_folder}/sys && mount --make-rslave ${tmp_folder}/sys && mount --rbind /sys ${tmp_folder}/run && mount --make-rslave ${tmp_folder}/run" "Mounting system structures"
 }
 
 function unmountSystem() {
