@@ -1,21 +1,44 @@
 #! /bin/bash
 
+##
+# @file StormByte-StageManager
+# @brief Gentoo tarball Stage Manager for chroot operations.
+#
+# This script manages Gentoo chroot environments from compressed tarballs. It supports
+# operations like listing, using, rebasing, converting, exporting, deleting, renaming,
+# downloading, and managing notes for tarballs. It also handles mounting/unmounting
+# system structures and temporary storage.
+#
+# Configuration is located in `/etc/conf.d/StormByte-StageManager.conf`.
+# Author: David C. Manuelda a.k.a StormByte <StormByte@gmail.com>
+##
+
 # This script can run standalone if its config and functions are in its folder
 workdir="${0%/*}"
 if [ -f "${workdir}/functions.sh" ]; then
-	source "${workdir}/functions.sh"
+    source "${workdir}/functions.sh"
 elif [ -f "/lib/StormByte/functions.sh" ]; then
-	source "/lib/StormByte/functions.sh"
+    source "/lib/StormByte/functions.sh"
 else
-	echo "Can't find functions.sh file in neither current directory neither /lib/StormByte"
-	exit 1
+    echo "Can't find functions.sh file in neither current directory neither /lib/StormByte"
+    exit 1
 fi
 
 loadConfig
 
 version="3.0.2"
+
+##
+# @brief Current working directory.
+##
 current_folder=`pwd`
+
+##
+# @brief List of tarball files in the specified folder.
+##
 file_list=(`find "${TARBALL_FOLDER}" -maxdepth 1 -type f \( -iname "*.tar.gz" -o -iname "*.tgz" -o -iname "*.tar.bz2" -o -iname "*.tbz2" -o -iname "*.tar.xz" -o -iname "*.txz" -o -iname "*.tar.zstd" -o -iname "*.tzd" \) ! -name 'ccache.txz'`)
+
+# Variables for tarball processing
 tarball_filename_fullpath=""
 tarball_filename=""
 tarball_extension=""
@@ -25,130 +48,212 @@ compress=""
 extract=""
 tar_compress="tar -cpf - . --numeric-owner --xattrs-include='*.*' --ignore-failed-read"
 tar_decompress="tar -xpf - --numeric-owner --xattrs-include='*.*'"
+
+# Compression tools
 if [ -f /usr/bin/pigz ]; then
-	gzip="pigz -${GZIP_COMPRESSION_LEVEL} -c"
+    gzip="pigz -${GZIP_COMPRESSION_LEVEL} -c"
 else
-	gzip="gzip2 -${GZIP_COMPRESSION_LEVEL} -c"
+    gzip="gzip2 -${GZIP_COMPRESSION_LEVEL} -c"
 fi
 if [ -f /usr/bin/lbzip2 ]; then
-	bzip2="lbzip2 -${BZIP_COMPRESSION_LEVEL} -c"
+    bzip2="lbzip2 -${BZIP_COMPRESSION_LEVEL} -c"
 else
-	bzip2="bzip2 -${BZIP_COMPRESSION_LEVEL} -c"
+    bzip2="bzip2 -${BZIP_COMPRESSION_LEVEL} -c"
 fi
 if [ -f /usr/bin/pxz ]; then
-	xz="pxz -${XZ_COMPRESSION_LEVEL}T0 -c"
+    xz="pxz -${XZ_COMPRESSION_LEVEL}T0 -c"
 else
-	xz="xz -${XZ_COMPRESSION_LEVEL}T0 -c"
+    xz="xz -${XZ_COMPRESSION_LEVEL}T0 -c"
 fi
 zstd="pzstd -${ZSTD_COMPRESSION_LEVEL}q -c"
+
+##
+# @brief Command to execute, extracted from script arguments.
+##
 command="${parameters[0]}"
+
+# Temporary variables
 tmp_folder=""
 lockfile=""
 output_folder=""
+
+# Available commands and formats
 available_commands=(list use rebase convert export delete rename download help notes)
 available_compression_formats=( gzip bzip2 xz zstd )
 available_compression_extensions=( tar.gz tgz tar.bz2 tbz2 tar.xz txz tar.zstd tzd )
+
+# ZRAM and ccache variables
 zram_device=""
 ccache_file="${TARBALL_FOLDER}/ccache.txz"
+
+##
+# @brief Base URL for downloading Gentoo stages.
+##
 gentoo_base_url="https://repo.ifca.es/gentoo-distfiles/releases"
 
+##
+# @brief Displays the script header.
+#
+# Prints the version and author information.
+##
 function header() {
-	echo "StormByte Gentoo Stage Manager Version ${version}"
-	echo "Author: David C. Manuelda a.k.a StormByte <StormByte@gmail.com>"
-	echo ""
+    echo "StormByte Gentoo Stage Manager Version ${version}"
+    echo "Author: David C. Manuelda a.k.a StormByte <StormByte@gmail.com>"
+    echo ""
 }
 
+##
+# @brief Displays usage information for the script.
+#
+# Provides a summary of available commands and their usage.
+##
 function usage() {
-	echo "This script will handle a gentoo chroot from a compressed tarball, it will mount all the needed points, chroot to it, clean, and make changes to compressed file again"
-	echo "Configuration is located in /etc/conf.d/StormByte-StageManager.conf"
-	echo "Usage is $self <command> <arguments>"
-	echo "Available commands are: ${available_commands[*]}"
-	echo "For more detailed help, use $self help <command> or $self help compression for more information about compression"
-	echo "See configuration file $config_file for more tweaking options"
+    echo "This script will handle a gentoo chroot from a compressed tarball, it will mount all the needed points, chroot to it, clean, and make changes to compressed file again"
+    echo "Configuration is located in /etc/conf.d/StormByte-StageManager.conf"
+    echo "Usage is $self <command> <arguments>"
+    echo "Available commands are: ${available_commands[*]}"
+    echo "For more detailed help, use $self help <command> or $self help compression for more information about compression"
+    echo "See configuration file $config_file for more tweaking options"
 }
 
+##
+# @brief Displays help for the `list` command.
+#
+# Explains how to use the `list` command to view tarball files.
+##
 function helpList() {
-	echo "Usage: $self list"
-	echo "This command will list the files in the folder specified which is ${TARBALL_FOLDER}, showing index number, size and filename."
-	echo "Use that index name to refer to the file in other commands"
+    echo "Usage: $self list"
+    echo "This command will list the files in the folder specified which is ${TARBALL_FOLDER}, showing index number, size and filename."
+    echo "Use that index name to refer to the file in other commands"
 }
 
+##
+# @brief Displays help for the `use` command.
+#
+# Explains how to use the `use` command to configure and enter a chroot.
+##
 function helpUse() {
-	echo "Usage: $self use <index>"
-	echo "This command will use file specified as index (see list command) for configuring and entering a chroot"
+    echo "Usage: $self use <index>"
+    echo "This command will use file specified as index (see list command) for configuring and entering a chroot"
 }
 
+##
+# @brief Displays help for the `rebase` command.
+#
+# Explains how to use the `rebase` command to copy and rebase a tarball.
+##
 function helpRebase() {
-	echo "Usage: $self rebase <index> <new_file_name>"
-	echo "This command is similar to use command, but before entering chroot, it copies file specified from index (see list command) to destination folder set in $config under new_file_name."
-	echo "Compression method is determined by the extension, see $self help compression for more details"
+    echo "Usage: $self rebase <index> <new_file_name>"
+    echo "This command is similar to use command, but before entering chroot, it copies file specified from index (see list command) to destination folder set in $config under new_file_name."
+    echo "Compression method is determined by the extension, see $self help compression for more details"
 }
 
+##
+# @brief Displays help for the `convert` command.
+#
+# Explains how to use the `convert` command to recompress a tarball.
+##
 function helpConvert() {
-	echo "Usage: $self convert <index> <compression_format>"
-	echo "This command will copy file specified by index and recompress to selected compression_format, an error will be raised if target filename determined by compression already exists"
-	echo "For more info about compression use $self help compression"
+    echo "Usage: $self convert <index> <compression_format>"
+    echo "This command will copy file specified by index and recompress to selected compression_format, an error will be raised if target filename determined by compression already exists"
+    echo "For more info about compression use $self help compression"
 }
 
+##
+# @brief Displays help for the `export` command.
+#
+# Explains how to use the `export` command to export a tarball to a destination folder.
+##
 function helpExport() {
-	echo "Usage: $self export <index> <destination_folder> <compression_format>"
-	echo "This command is similar to convert, but it allows to specify a destination folder for the new file. This folder has to exist or an error will be raised"
+    echo "Usage: $self export <index> <destination_folder> <compression_format>"
+    echo "This command is similar to convert, but it allows to specify a destination folder for the new file. This folder has to exist or an error will be raised"
 }
 
+##
+# @brief Displays help for the `delete` command.
+#
+# Explains how to use the `delete` command to remove a tarball.
+##
 function helpDelete() {
-	echo "Usage: $self delete <index>"
-	echo "This command will delete a file specified by its index (see list command)"
+    echo "Usage: $self delete <index>"
+    echo "This command will delete a file specified by its index (see list command)"
 }
 
+##
+# @brief Displays help for the `rename` command.
+#
+# Explains how to use the `rename` command to rename a tarball.
+##
 function helpRename() {
-	echo "Usage: $self rename <index> <new_file_name>"
-	echo "This command allows renaming a file specified by index (see list command) to a new_file_name under the same folder."
+    echo "Usage: $self rename <index> <new_file_name>"
+    echo "This command allows renaming a file specified by index (see list command) to a new_file_name under the same folder."
 }
 
+##
+# @brief Displays help for compression formats.
+#
+# Explains available compression formats and extensions.
+##
 function helpCompression() {
-	echo "This utility uses compression for keeping storage of its files, some times, depending on the command, compression is determined by the file extension or by the name of the compressor algorithm"
-	echo "Available extensions are: ${available_compression_extensions[*]}"
-	echo "Available compression formats are: ${available_compression_formats[*]}"
+    echo "This utility uses compression for keeping storage of its files, some times, depending on the command, compression is determined by the file extension or by the name of the compressor algorithm"
+    echo "Available extensions are: ${available_compression_extensions[*]}"
+    echo "Available compression formats are: ${available_compression_formats[*]}"
 }
 
+##
+# @brief Displays help for the `download` command.
+#
+# Explains how to use the `download` command to fetch a Gentoo stage tarball.
+##
 function helpDownload() {
-	echo "Usage: $self download <arch> <profile>"
-	echo "This command will download a stage3 for selected arch and profile. If profile is not specified, a default one will be chosen"
-	echo "Available arches are i486, i686, amd64 and x32"
-	echo "Available profiles depends on selected arch:"
-	echo ""
-	echo "i486:"
-	echo "  * default"
-	echo ""
-	echo "i686:"
-	echo "  * default"
-	echo "  * hardened"
-	echo "  * systemd"
-	echo "  * uclibc-hardened"
-	echo "  * uclibc-vanilla"
-	echo ""
-	echo "amd64:"
-	echo "  * default (multilib)"
-	echo "  * hardened"
-	echo "  * nomultilib"
-	echo "  * systemd"
-	echo "  * hardened+nomultilib"
-	echo "  * hardened-selinux"
-	echo "  * hardened-selinux+nomultilib"
-	echo "  * uclibc-hardened"
-	echo "  * uclibc-vanilla"
-	echo ""
-	echo "x32:"
-	echo "  * default"
+    echo "Usage: $self download <arch> <profile>"
+    echo "This command will download a stage3 for selected arch and profile. If profile is not specified, a default one will be chosen"
+    echo "Available arches are i486, i686, amd64 and x32"
+    echo "Available profiles depends on selected arch:"
+    echo ""
+    echo "i486:"
+    echo "  * default"
+    echo ""
+    echo "i686:"
+    echo "  * default"
+    echo "  * hardened"
+    echo "  * systemd"
+    echo "  * uclibc-hardened"
+    echo "  * uclibc-vanilla"
+    echo ""
+    echo "amd64:"
+    echo "  * default (multilib)"
+    echo "  * hardened"
+    echo "  * nomultilib"
+    echo "  * systemd"
+    echo "  * hardened+nomultilib"
+    echo "  * hardened-selinux"
+    echo "  * hardened-selinux+nomultilib"
+    echo "  * uclibc-hardened"
+    echo "  * uclibc-vanilla"
+    echo ""
+    echo "x32:"
+    echo "  * default"
 }
 
+##
+# @brief Displays help for the `notes` command.
+#
+# Explains how to use the `notes` command to manage notes for tarballs.
+##
 function helpNotes() {
-	echo "Usage: $self notes <index> <subcommand>"
-	echo "This command will handle notes for a stage tarball index via specified subcommand:"
-	echo "  * edit -> Edits notes for specified stage via config's specified editor"
-	echo "  * delete -> Cleans stage notes"
+    echo "Usage: $self notes <index> <subcommand>"
+    echo "This command will handle notes for a stage tarball index via specified subcommand:"
+    echo "  * edit -> Edits notes for specified stage via config's specified editor"
+    echo "  * delete -> Cleans stage notes"
 }
 
+##
+# @brief Validates configuration variables.
+#
+# Checks the validity of configuration variables such as storage system, compression levels,
+# and directory paths. Exits with an error if any validation fails.
+##
 function checkVars() {
 	local errors=0
 	if [ -z "${STORAGE_SYSTEM}" ] || [ "${STORAGE_SYSTEM}" != "zram" ] && [ "${STORAGE_SYSTEM}" != "tmpfs" ] && [ "${STORAGE_SYSTEM}" != "folder" ]; then
@@ -255,6 +360,11 @@ function checkVars() {
 	fi
 }
 
+##
+# @brief Sets the output folder for operations.
+#
+# @param [optional] $1 The output folder path. Defaults to the tarball folder if not provided.
+##
 function setOutputFolder() {
 	if [ "$#" -eq 0 ]; then
 		output_folder="${TARBALL_FOLDER}"
@@ -267,6 +377,11 @@ function setOutputFolder() {
 	fi
 }
 
+##
+# @brief Sets the decompression command based on the file extension.
+#
+# @param $1 The file extension (e.g., tar.gz, tar.bz2, tar.xz, etc.).
+##
 function setDecompression() {
 	case "$1" in
 		tar.gz|tgz|gzip)
@@ -292,6 +407,11 @@ function setDecompression() {
 	esac
 }
 
+##
+# @brief Sets the compression command based on the file extension.
+#
+# @param $1 The file extension (e.g., tar.gz, tar.bz2, tar.xz, etc.).
+##
 function setCompression() {
 	local tarball_output_extension=""
 	case "$1" in
@@ -323,15 +443,24 @@ function setCompression() {
 	tarball_output="${tarball_filename}.${tarball_output_extension}"
 }
 
+##
+# @brief Mounts system directories (e.g., /proc, /dev, /sys).
+##
 function mountSystem() {
 	handleCommand "mount -t proc /proc ${tmp_folder}/proc && mount --rbind /dev ${tmp_folder}/dev && mount --make-rslave ${tmp_folder}/dev && mount --rbind /sys ${tmp_folder}/sys && mount --make-rslave ${tmp_folder}/sys && mount --rbind /sys ${tmp_folder}/run && mount --make-rslave ${tmp_folder}/run" "Mounting system structures"
 }
 
+##
+# @brief Unmounts system directories (e.g., /proc, /dev, /sys).
+##
 function unmountSystem() {
 	cd "${current_folder}"
 	handleCommand "umount -Rl ${tmp_folder}/proc && umount -Rl ${tmp_folder}/dev && umount -Rl ${tmp_folder}/sys && umount -l ${tmp_folder}/run" "Unmounting system structures"
 }
 
+##
+# @brief Cleans temporary files and logs in the chroot environment.
+##
 function cleanStage() {
 	handleCommand "rm -Rf ${tmp_folder}/tmp/* ${tmp_folder}/var/tmp/portage" "Cleaning portage temporary files"
 	handleCommand "rm -Rf ${tmp_folder}{${PKG_DIR},${DISTFILES_DIR}}/*" "Cleaning files"
@@ -343,6 +472,11 @@ function cleanStage() {
 	handleCommand "rm -f ${tmp_folder}/root/.bash_history" "Cleaning history"
 }
 
+##
+# @brief Sets and validates the tarball file to be used.
+#
+# @param [optional] $1 The full path to the tarball file. If not provided, uses the index from the file list.
+##
 function setAndCheckFile() {
 	# If this received a parameter then will ignore selected index and will use the file provided in parameter
 	if [ "$#" -eq 0 ]; then
@@ -375,6 +509,12 @@ function setAndCheckFile() {
 	fi
 }
 
+##
+# @brief Validates the origin and destination files for copy operations.
+#
+# @param $1 The origin file path.
+# @param $2 The destination file path.
+##
 function checkFileCopy() {
 	# Received 2 parameters: origin destination
 	origin="${TARBALL_FOLDER}/`basename $1`"
@@ -388,14 +528,23 @@ function checkFileCopy() {
 	fi
 }
 
+##
+# @brief Creates a temporary folder for operations.
+##
 function createTMPFolder() {
 	handleCommand "tmp_folder=`mktemp -d -t \"tmp.${tarball_filename}.XXXXXXXX\"`" "Creating temporary folder"
 }
 
+##
+# @brief Deletes the temporary folder used for operations.
+##
 function deleteTMPFolder() {
 	handleCommand "rm -Rf ${tmp_folder}" "Deleting temporary folder"
 }
 
+##
+# @brief Mounts the temporary storage based on the configured storage system.
+##
 function mountTEMP() {
 	case "${STORAGE_SYSTEM}" in
 		folder)
@@ -410,6 +559,9 @@ function mountTEMP() {
 	esac
 }
 
+##
+# @brief Unmounts the temporary storage based on the configured storage system.
+##
 function unmountTEMP() {
 	case "${STORAGE_SYSTEM}" in
 		folder)
@@ -424,16 +576,25 @@ function unmountTEMP() {
 	esac
 }
 
+##
+# @brief Makes the temporary storage read-only.
+##
 function readonlyTEMP() {
 	if [ "${STORAGE_SYSTEM}" != "folder" ]; then
 		handleCommand "mount -o remount,ro ${tmp_folder}" "Making stage filesystem readonly"
 	fi
 }
 
+##
+# @brief Mounts a folder-based temporary storage.
+##
 function mountFOLDER() {
 	mkdir -p "${tmp_folder}"
 }
 
+##
+# @brief Mounts a ZRAM-based temporary storage.
+##
 function mountZRAM() {
 	mkdir -p "${tmp_folder}"
 	zram_device_full=`zramctl -f`
@@ -454,11 +615,17 @@ function mountZRAM() {
 	handleCommand "mount ${zram_device_full} '${tmp_folder}' -o noatime,compress=${zram_zstd_compression}" "Mounting ${zram_device} storage with compression ${zram_zstd_compression}"
 }
 
+##
+# @brief Mounts a TMPFS-based temporary storage.
+##
 function mountTMPFS() {
 	mkdir -p "${tmp_folder}"
 	handleCommand "mount -t tmpfs -o size=${STORAGE_SIZE} tmpfs ${tmp_folder} -o nr_inodes=0" "Mounting tmpfs storage"
 }
 
+##
+# @brief Mounts the PKG directory in the chroot environment.
+##
 function mountPKG() {
 	mkdir -p "${tmp_folder}${PKG_DIR}"
 	touch "${tmp_folder}${PKG_DIR}/.keep"
@@ -468,6 +635,9 @@ function mountPKG() {
 	fi
 }
 
+##
+# @brief Mounts the distfiles directory in the chroot environment.
+##
 function mountDistfiles() {
 	mkdir -p "${tmp_folder}${DISTFILES_DIR}"
 	touch "${tmp_folder}${DISTFILES_DIR}/.keep"
@@ -477,6 +647,9 @@ function mountDistfiles() {
 	fi
 }
 
+##
+# @brief Mounts the ccache directory in the chroot environment.
+##
 function mountCCache() {
 	if [ "${USE_CCACHE}" == "YES" ]; then
 		mkdir -p "${tmp_folder}${CCACHE_DIR}"
@@ -488,11 +661,17 @@ function mountCCache() {
 	fi
 }
 
+##
+# @brief Unmounts a folder-based temporary storage.
+##
 function unmountFOLDER() {
 	cd "${current_folder}"
 	# This is a NO OP function as it will be just deleted later
 }
 
+##
+# @brief Unmounts a ZRAM-based temporary storage.
+##
 function unmountZRAM() {
 	cd "${current_folder}"
 	handleCommand "umount -Rl ${tmp_folder}" "Unmounting ${zram_device} storage"
@@ -501,11 +680,17 @@ function unmountZRAM() {
 	handleCommand "echo 1 > /sys/block/${zram_device}/reset" "Deactivating ${zram_device}"
 }
 
+##
+# @brief Unmounts a TMPFS-based temporary storage.
+##
 function unmountTMPFS() {
 	cd "${current_folder}"
 	handleCommand "umount -R ${tmp_folder}" "Unmounting tmpfs storage"
 }
 
+##
+# @brief Unmounts the PKG directory in the chroot environment.
+##
 function unmountPKG() {
 	cd "${current_folder}"
 	if [ "${USE_PKG_BIND}" == "YES" ]; then
@@ -513,6 +698,9 @@ function unmountPKG() {
 	fi
 }
 
+##
+# @brief Unmounts the distfiles directory in the chroot environment.
+##
 function unmountDistfiles() {
 	cd "${current_folder}"
 	if [ "${USE_DISTFILES_BIND}" == "YES" ]; then
@@ -520,6 +708,9 @@ function unmountDistfiles() {
 	fi
 }
 
+##
+# @brief Unmounts the ccache directory in the chroot environment.
+##
 function unmountCCache() {
 	if [ "${USE_CCACHE}" == "YES" ]; then
 		cd "${current_folder}"
@@ -529,6 +720,11 @@ function unmountCCache() {
 	fi
 }
 
+##
+# @brief Extracts the tarball archive into the temporary folder.
+#
+# @param [optional] $1 The tarball file to extract (used for rebasing).
+##
 function extractArchive() {
 	local text=""
 	# If we provided a parameter then it means we come here by a rebase not a normal use, so we adapt message reflecting this fact
@@ -541,6 +737,11 @@ function extractArchive() {
 	handleCommandWithOutput "pv ${tarball_filename_fullpath} | ${extract} | ${tar_decompress}" "${text}"
 }
 
+##
+# @brief Saves changes made in the chroot environment back to the tarball.
+#
+# @param [optional] $1 The new tarball file name (used for rebasing).
+##
 function saveChanges() {
 	local reply=""
 	while [[ ! $reply =~ ^[YyNn]$ ]]; do
@@ -562,12 +763,18 @@ function saveChanges() {
 	fi
 }
 
+##
+# @brief Compresses the chroot environment into a tarball.
+##
 function compressArchive() {
 	cd "${tmp_folder}"
 	handleCommandWithOutput "${tar_compress} | pv -s $(du -sbl ${tmp_folder} | awk '{print $1}') | ${compress} > ${output_folder}/.${tarball_output}.compress" "Compressing system files to ${tarball_output}"
 	mv "${output_folder}/.${tarball_output}.compress" "${output_folder}/${tarball_output}"
 }
 
+##
+# @brief Extracts the ccache data into the chroot environment.
+##
 function doCcache() {
 	if [ "${USE_CCACHE_FILE}" == "YES" ]; then
 		mkdir -p "${tmp_folder}/${CCACHE_OUT_FOLDER}"
@@ -580,6 +787,9 @@ function doCcache() {
 	fi
 }
 
+##
+# @brief Compresses and saves the ccache data from the chroot environment.
+##
 function undoCcache() {
 	local prev_folder=`pwd`
 	cd "${tmp_folder}/${CCACHE_OUT_FOLDER}"
@@ -588,11 +798,17 @@ function undoCcache() {
 	cd "${prev_folder}"
 }
 
+##
+# @brief Enters the chroot environment.
+##
 function doChroot() {
 	echo "Entering chroot, don't forget to run env-update && . /etc/profile"
 	chroot "${tmp_folder}" "/bin/bash"
 }
 
+##
+# @brief Lists all tarball files in the configured folder.
+##
 function doList() {
 	if [ -z "${file_list}" ]; then
 		echo "File list is empty, check ${TARBALL_FOLDER} contents!"
@@ -619,7 +835,10 @@ function doList() {
 	done
 }
 
-doLock() {
+##
+# @brief Creates a lockfile to prevent concurrent operations.
+##
+function doLock() {
 	if [ -f "${lockfile}" ]; then
 		echo "Another instance is running using file ${lockfile}"
 		echo "If this is an error manually delete ${lockfile} file"
@@ -628,10 +847,18 @@ doLock() {
 	handleCommand "touch ${lockfile}" "Setting lockfile"
 }
 
-doUnlock() {
+##
+# @brief Removes the lockfile after operations are complete.
+##
+function doUnlock() {
 	handleCommand "rm -f ${lockfile}" "Removing lockfile"
 }
 
+##
+# @brief Configures and enters a chroot environment using a tarball.
+#
+# @param [optional] $1 The tarball file to use.
+##
 function doUse() {
 	# If no parameter if received, it will autodetect from script arguments, otherwise it will use provided filename as parameter
 	setAndCheckFile "$@"
@@ -657,6 +884,9 @@ function doUse() {
 	doUnlock
 }
 
+##
+# @brief Converts a tarball to a different compression format.
+##
 function doConvert() {
 	setAndCheckFile
 	setCompression ${parameters[2]}
@@ -672,6 +902,9 @@ function doConvert() {
 	doUnlock
 }
 
+##
+# @brief Exports a tarball to a specified folder with a new compression format.
+##
 function doExport() {
 	setOutputFolder "${parameters[2]}"
 	setAndCheckFile
@@ -700,6 +933,9 @@ function doExport() {
 	doUnlock
 }
 
+##
+# @brief Deletes a tarball file.
+##
 function doDelete() {
 	setAndCheckFile
 	doLock
@@ -707,6 +943,9 @@ function doDelete() {
 	doUnlock
 }
 
+##
+# @brief Renames a tarball file.
+##
 function doRename() {
 	local new_filename=`basename "${parameters[2]}"`
 	setAndCheckFile
@@ -716,6 +955,9 @@ function doRename() {
 	doUnlock
 }
 
+##
+# @brief Rebases a tarball with a new file name and compression format.
+##
 function doRebase() {
 	# doRebase is a special version of do use, but changing the compression method and output file right before save changes, so when saving, new filename and compression method will be used instead
 	setAndCheckFile
@@ -741,6 +983,9 @@ function doRebase() {
 	doUnlock
 }
 
+##
+# @brief Validates the parameters for downloading a Gentoo stage tarball.
+##
 function checkDownloadParameters() {
 	arch="${parameters[1]}"
 	profile="${parameters[2]}"
@@ -820,6 +1065,9 @@ function checkDownloadParameters() {
 	fi
 }
 
+##
+# @brief Downloads a Gentoo stage tarball based on the specified architecture and profile.
+##
 function doDownload() {
 	arch="${parameters[1]}"
 	profile="${parameters[2]}"
@@ -839,6 +1087,9 @@ function doDownload() {
 	echo "`basename ${stage_file}` downloaded to ${TARBALL_FOLDER}"
 }
 
+##
+# @brief Displays help information for a specific command or general usage.
+##
 function doHelp() {
 	case "${parameters[1]}" in
 		list)
@@ -877,6 +1128,9 @@ function doHelp() {
 	esac
 }
 
+##
+# @brief Manages notes for a tarball (edit or delete).
+##
 function doNotes() {
 	setAndCheckFile
 	case "${parameters[2]}" in
@@ -899,6 +1153,9 @@ function doNotes() {
 }
 	
 
+##
+# @brief Initializes the script and executes the specified command.
+##
 function doInit() {
 	header
 	checkVars
@@ -942,5 +1199,6 @@ function doInit() {
 	exit 0
 }
 
+# Start the script
 doInit
 
