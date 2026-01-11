@@ -26,7 +26,7 @@ fi
 
 loadConfig
 
-version="3.0.2"
+version="3.0.3"
 
 ##
 # @brief Current working directory.
@@ -36,7 +36,11 @@ current_folder=`pwd`
 ##
 # @brief List of tarball files in the specified folder.
 ##
-file_list=(`find "${TARBALL_FOLDER}" -maxdepth 1 -type f \( -iname "*.tar.gz" -o -iname "*.tgz" -o -iname "*.tar.bz2" -o -iname "*.tbz2" -o -iname "*.tar.xz" -o -iname "*.txz" -o -iname "*.tar.zstd" -o -iname "*.tzd" \) ! -name 'ccache.txz'`)
+file_list=($(find "$TARBALL_FOLDER" -maxdepth 1 -type f \
+    -iregex '.*\.\(tar\.gz\|tgz\|tar\.bz2\|tbz2\|tar\.xz\|txz\|tar\.zstd\|tzd\)$' \
+    ! -name 'ccache.txz' \
+    | awk '{print length, $0}' | sort -n | cut -d" " -f2-))
+
 
 # Variables for tarball processing
 tarball_filename_fullpath=""
