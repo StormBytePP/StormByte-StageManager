@@ -26,7 +26,7 @@ fi
 
 loadConfig
 
-version="3.0.3"
+version="3.1.0"
 
 ##
 # @brief Current working directory.
@@ -331,6 +331,23 @@ function checkVars() {
 			errors=1
 		fi
 	fi
+	if [ "${USE_SCCACHE_BIND}" != "NO" ] && [ "${USE_SCCACHE_BIND}" != "YES" ]; then
+		echo "Sccache bind variable is not set to either YES or NO"
+		errors=1
+	fi
+	if [ "${USE_SCCACHE}" != "NO" ] && [ "${USE_SCCACHE}" != "YES" ]; then
+		echo "Use sccache variable is not set to either YES or NO"
+		errors=1
+	fi
+	if [ "${USE_SCCACHE}" != "NO" ]; then
+		if [ -z "${SCCACHE_DIR}" ]; then
+			echo "Sccache folder variable is empty or undefined!"
+			errors=1
+		elif [ ! -d "${SCCACHE_DIR}" ]; then
+			echo "Sccache folder ${SCCACHE_DIR} does NOT exist"
+			errors=1
+		fi
+	fi
 	if [ "${USE_PKG_BIND}" != "NO" ] && [ "${USE_PKG_BIND}" != "YES" ]; then
 		echo "PKG dir bind variable is not set to either YES or NO"
 		errors=1
@@ -470,6 +487,9 @@ function cleanStage() {
 	handleCommand "rm -Rf ${tmp_folder}{${PKG_DIR},${DISTFILES_DIR}}/*" "Cleaning files"
 	if [ "${USE_CCACHE}" != "NO" ]; then
 		handleCommand "rm -Rf ${tmp_folder}${CCACHE_DIR}/*" "Cleaning ccache files"
+	fi
+	if [ "${USE_SCCACHE}" != "NO" ]; then
+		handleCommand "rm -Rf ${tmp_folder}${SCCACHE_DIR}/*" "Cleaning sccache files"
 	fi
 	# It might happen that there are no log or no /var/tmp files in which case cleaning will fail so we do it safely
 	handleCommand "find ${tmp_folder}/var/log -type f -exec rm -f {} \; && find ${tmp_folder}/var/tmp -type f -exec rm -f {} \;" "Cleaning logs"
@@ -663,6 +683,14 @@ function mountCCache() {
 			handleCommand "mount --bind ${CCACHE_DIR} ${tmp_folder}${CCACHE_DIR}" "Mounting CCache storage"
 		fi
 	fi
+	if [ "${USE_SCCACHE}" == "YES" ]; then
+		mkdir -p "${tmp_folder}${SCCACHE_DIR}"
+		touch "${tmp_folder}${SCCACHE_DIR}/.keep"
+
+		if [ "${USE_SCCACHE_BIND}" == "YES" ]; then
+			handleCommand "mount --bind ${SCCACHE_DIR} ${tmp_folder}${SCCACHE_DIR}" "Mounting Sccache storage"
+		fi
+	fi
 }
 
 ##
@@ -720,6 +748,12 @@ function unmountCCache() {
 		cd "${current_folder}"
 		if [ "${USE_CCACHE_BIND}" == "YES" ]; then
 			handleCommand "umount ${tmp_folder}${CCACHE_DIR}" "Unmounting CCache storage"
+		fi
+	fi
+	if [ "${USE_SCCACHE}" == "YES" ]; then
+		cd "${current_folder}"
+		if [ "${USE_SCCACHE_BIND}" == "YES" ]; then
+			handleCommand "umount ${tmp_folder}${SCCACHE_DIR}" "Unmounting Sccache storage"
 		fi
 	fi
 }
