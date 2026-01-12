@@ -38,7 +38,7 @@ current_folder=`pwd`
 ##
 file_list=($(find "$TARBALL_FOLDER" -maxdepth 1 -type f \
 	-iregex '.*\.\(tar\.gz\|tgz\|tar\.bz2\|tbz2\|tar\.xz\|txz\|tar\.zstd\|tzd\)$' \
-	! -name 'ccache.txz' ! -name 'sccache.txz' \
+	! -name 'ccache.tbz2' ! -name 'sccache.tbz2' \
 	| awk '{print length, $0}' | sort -n | cut -d" " -f2-))
 
 
@@ -90,8 +90,8 @@ available_compression_extensions=( tar.gz tgz tar.bz2 tbz2 tar.xz txz tar.zstd t
 zram_device=""
 
 # Cache variables
-ccache_file="${TARBALL_FOLDER}/ccache.txz"
-sccache_file="${TARBALL_FOLDER}/sccache.txz"
+ccache_file="${TARBALL_FOLDER}/ccache.tbz2"
+sccache_file="${TARBALL_FOLDER}/sccache.tbz2"
 
 ##
 # @brief Base URL for downloading Gentoo stages.
@@ -853,12 +853,12 @@ function compressArchive() {
 function unpackCache() {
 	if [ "${USE_CCACHE_FILE}" == "YES" ]; then
 		mkdir -p "${tmp_folder}${CCACHE_DIR}"
-		if [ -f "${ccache_file}" ]; then
-			local prev_folder=`pwd`
-			cd "${tmp_folder}${CCACHE_DIR}"
-			handleCommandWithOutput "pv ${ccache_file} | ${xz} -d - | ${tar_decompress}" "Extracting CCache data..."
-			cd "${prev_folder}"
-		fi
+        	if [ -f "${ccache_file}" ]; then
+        		local prev_folder=`pwd`
+        		cd "${tmp_folder}${CCACHE_DIR}"
+        		handleCommandWithOutput "pv ${ccache_file} | ${bzip2} -d - | ${tar_decompress}" "Extracting CCache data..."
+        		cd "${prev_folder}"
+        	fi
 		# Use chown from inside the chroot to resolve 'portage' to chroot's UID/GID
 		chroot "${tmp_folder}" chown -R portage:portage "${CCACHE_DIR}"
 		chmod -R 770 "${tmp_folder}${CCACHE_DIR}"
@@ -868,7 +868,7 @@ function unpackCache() {
 		if [ -f "${sccache_file}" ]; then
 			local prev_folder=`pwd`
 			cd "${tmp_folder}${SCCACHE_DIR}"
-			handleCommandWithOutput "pv ${sccache_file} | ${xz} -d - | ${tar_decompress}" "Extracting Sccache data..."
+			handleCommandWithOutput "pv ${sccache_file} | ${bzip2} -d - | ${tar_decompress}" "Extracting Sccache data..."
 			cd "${prev_folder}"
 		fi
 		# Use chown from inside the chroot to resolve 'portage' to chroot's UID/GID
@@ -884,14 +884,14 @@ function saveCache() {
 	if [ "${USE_CCACHE}" == "YES" ] && [ "${USE_CCACHE_FILE}" == "YES" ]; then
 		local prev_folder=`pwd`
 		cd "${tmp_folder}${CCACHE_DIR}"
-		handleCommandWithOutput "${tar_compress} | pv -s $(du -sbl . | awk '{print $1}') | ${xz} > ${ccache_file}" "Compressing CCache data"
+		handleCommandWithOutput "${tar_compress} | pv -s $(du -sbl . | awk '{print $1}') | ${bzip2} > ${ccache_file}" "Compressing CCache data"
 		handleCommand "rm -Rf ${tmp_folder}${CCACHE_DIR}/*" "Cleaning CCache contents after save"
 		cd "${prev_folder}"
 	fi
 	if [ "${USE_SCCACHE}" == "YES" ] && [ "${USE_SCCACHE_FILE}" == "YES" ]; then
 		local prev_folder=`pwd`
 		cd "${tmp_folder}${SCCACHE_DIR}"
-		handleCommandWithOutput "${tar_compress} | pv -s $(du -sbl . | awk '{print $1}') | ${xz} > ${sccache_file}" "Compressing Sccache data"
+		handleCommandWithOutput "${tar_compress} | pv -s $(du -sbl . | awk '{print $1}') | ${bzip2} > ${sccache_file}" "Compressing Sccache data"
 		handleCommand "rm -Rf ${tmp_folder}${SCCACHE_DIR}/*" "Cleaning Sccache contents after save"
 		cd "${prev_folder}"
 	fi
