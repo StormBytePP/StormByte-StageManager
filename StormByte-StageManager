@@ -507,15 +507,21 @@ function unmountSystem() {
 function cleanStage() {
 	handleCommand "rm -Rf ${tmp_folder}/tmp/* ${tmp_folder}/var/tmp/portage" "Cleaning portage temporary files"
 	handleCommand "rm -Rf ${tmp_folder}{${PKG_DIR},${DISTFILES_DIR}}/*" "Cleaning files"
+	# It might happen that there are no log or no /var/tmp files in which case cleaning will fail so we do it safely
+	handleCommand "find ${tmp_folder}/var/log -type f -exec rm -f {} \; && find ${tmp_folder}/var/tmp -type f -exec rm -f {} \;" "Cleaning logs"
+	handleCommand "rm -f ${tmp_folder}/root/.bash_history" "Cleaning history"
+}
+
+##
+# @brief Cleans cache files in the chroot environment.
+##
+function cleanCaches() {
 	if [ "${USE_CCACHE}" == "YES" ] && [ "${USE_CCACHE_BIND}" != "YES" ]; then
 		handleCommand "rm -Rf ${tmp_folder}${CCACHE_DIR}/*" "Cleaning ccache files"
 	fi
 	if [ "${USE_SCCACHE}" == "YES" ] && [ "${USE_SCCACHE_BIND}" != "YES" ]; then
 		handleCommand "rm -Rf ${tmp_folder}${SCCACHE_DIR}/*" "Cleaning sccache files"
 	fi
-	# It might happen that there are no log or no /var/tmp files in which case cleaning will fail so we do it safely
-	handleCommand "find ${tmp_folder}/var/log -type f -exec rm -f {} \; && find ${tmp_folder}/var/tmp -type f -exec rm -f {} \;" "Cleaning logs"
-	handleCommand "rm -f ${tmp_folder}/root/.bash_history" "Cleaning history"
 }
 
 ##
@@ -812,6 +818,7 @@ function saveChanges() {
 		if [ "${USE_CCACHE_FILE}" == "YES" ] || [ "${USE_SCCACHE_FILE}" == "YES" ]; then
 			saveCache
 		fi
+		cleanCaches
 		# If we came from a rebase request, then we need to temporary set file and revert back for cleaning purposes
 		if [ "$#" -ne 0 ]; then
 			setAndCheckFile "${TARBALL_FOLDER}/${parameters[2]}"
