@@ -1,188 +1,91 @@
 # StormByte-StageManager
 
-**StormByte-StageManager** is a Bash script designed to manage Gentoo chroot environments from compressed tarballs. It provides functionality for listing, using, rebasing, converting, exporting, deleting, renaming, downloading, and managing notes for tarballs. The script also handles mounting/unmounting system structures and temporary storage.
+![License: GPL v3](https://img.shields.io/badge/license-GPLv3-blue.svg)
+![Language: Bash](https://img.shields.io/badge/language-Bash-4EAA25.svg)
+![Release](https://img.shields.io/badge/release-3.1.0-lightgrey)
 
-## Features
+`StormByte-StageManager` is a focused Bash utility to simplify maintenance of Linux stage tarballs (primarily Gentoo stage3 archives). It automates extracting, preparing, chrooting, cleaning, and recompressing stage tarballs so you can manage chroot environments quickly and reproducibly.
 
-- Manage Gentoo chroot environments with ease.
-- Support for multiple compression formats (gzip, bzip2, xz, zstd).
-- Automatic mounting and unmounting of system directories.
-- Export and convert tarballs to different formats.
-- Download Gentoo stage tarballs for various architectures and profiles.
-- Manage notes for tarballs.
+**Why this exists**
+- Managing stage tarballs manually (mounts, tmpfs/zram, caches, chroot upkeep, and recompression) is error-prone and repetitive. This tool bundles common operations into a safe, scriptable workflow.
+
+**Use cases**
+- Prepare an editable chroot from a stage tarball and re-export it after changes.
+- Rebase or clone an existing stage tarball into a new file name/format.
+- Convert or export stage tarballs between compression formats.
+- Maintain ccache/sccache, pkgdir and distfiles bindings while chrooting.
+- Download official Gentoo stage tarballs for standard architectures/profiles.
+
+**Supported compression formats**: gzip, bzip2, xz, zstd
+
+**Storage backends for temporary mounts**: folder (plain directory), tmpfs, zram (with btrfs + zstd optional).
+
+**Important**: Many operations require root privileges (mounting, chroot, manipulating loop/zram devices).
+
+**Contents**
+- `StormByte-StageManager` — main executable script
+- `StormByte-StageManager.conf` — example configuration shipped with the project
+
+## Quick Start
+
+1. Make the script executable:
+
+```bash
+chmod +x StormByte-StageManager
+```
+
+2. Edit `StormByte-StageManager.conf` to point `TARBALL_FOLDER` and set desired storage behavior.
+
+3. Run help to explore commands:
+
+```bash
+./StormByte-StageManager help
+```
+
+## Common Commands
+
+- `list` — list available tarballs in `TARBALL_FOLDER` with indexes.
+- `use <index>` — extract selected tarball into temporary storage, mount system binds, chroot into it, and prompt to save changes after exit.
+- `rebase <index> <new_file_name>` — copy and rebase an archive into a new file.
+- `convert <index> <compression_format>` — recompress an archive into another format.
+- `export <index> <destination> <compression_format>` — export to a different folder/format.
+- `delete <index>` — remove an archive from the store.
+- `rename <index> <new_file_name>` — rename an archive.
+- `download <arch> <profile>` — fetch an official stage tarball for the specified arch/profile.
+- `notes <index> edit|delete` — manage notes for a specific stage file.
+
+See `./StormByte-StageManager help <command>` for detailed usage and examples.
+
+## Configuration highlights
+
+- `TARBALL_FOLDER`: directory that contains stage tarballs.
+- `STORAGE_SYSTEM`: `folder`, `tmpfs` or `zram` — controls temporary extraction/mount.
+- `STORAGE_SIZE`: size for tmpfs/zram (e.g., `20G`).
+- Compression level variables: `GZIP_COMPRESSION_LEVEL`, `BZIP_COMPRESSION_LEVEL`, `XZ_COMPRESSION_LEVEL`, `ZSTD_COMPRESSION_LEVEL`.
+- Cache and bind options: `USE_CCACHE`, `USE_CCACHE_BIND`, `USE_SCCACHE`, `USE_SCCACHE_BIND`, `USE_PKG_BIND`, `USE_DISTFILES_BIND`.
+
+Edit the provided `StormByte-StageManager.conf` to match your environment and copy it to `/etc/conf.d/` for system-wide usage if desired.
 
 ## Requirements
 
-### Mandatory
-- `bash`
-- `btrfs-progs`
-- `curl`
-- `tar`
+- bash (POSIX-compatible)
+- tar
+- curl (for downloads)
+- btrfs-progs (when using zram with btrfs)
+- Optional accelerated compressors: `pigz`, `pbzip2`/`lbzip2`, `pxz`, `zstd`
 
-### Compression Tools (based on configuration)
-- `pigz` (for gzip)
-- `pbzip2` (for bzip2)
-- `pxz` (for xz)
-- `zstd` (for zstd)
+## Security & Privileges
 
-### Storage Methods
-- `zram` (if using ZRAM-based temporary storage)
+Many operations require root. Be cautious when running scripts that mount filesystems or call `chroot`. Review configuration settings (especially bind mounts like `PKG_DIR` and `DISTFILES_DIR`) before running on production systems.
 
-## Installation
+## Contributing
 
-To install **StormByte-StageManager**, clone the repository from GitHub and set up the necessary configuration:
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/StormBytePP/StormByte-StageManager.git
-   cd StormByte-StageManager
-   ```
-
-2. Make the script executable:
-   ```bash
-   chmod +x StormByte-StageManager
-   ```
-
-3. (Optional) Move the script to a directory in your `PATH` for global access:
-   ```bash
-   sudo mv StormByte-StageManager /usr/local/bin/
-   ```
-
-4. Copy the configuration file to `/etc/conf.d/`:
-   ```bash
-   sudo cp conf.d/StormByte-StageManager.conf /etc/conf.d/
-   ```
-
-5. Edit the configuration file to suit your environment:
-   ```bash
-   sudo nano /etc/conf.d/StormByte-StageManager.conf
-   ```
-
-## Configuration
-
-Before using the script, ensure that the configuration file `/etc/conf.d/StormByte-StageManager.conf` is properly filled out. This file contains important settings such as the tarball folder, compression levels, and storage options.
-
-## Usage
-
-The script provides several commands to manage Gentoo tarballs. Below are examples of how to use the script:
-
-### Display Help
-To view the general help or help for a specific command:
-```bash
-StormByte-StageManager help
-StormByte-StageManager help list
-StormByte-StageManager help use
-```
-
-### List Available Tarballs
-To list all tarballs in the configured folder:
-```bash
-StormByte-StageManager list
-```
-
-### Use a Tarball
-To use a tarball and automatically chroot into it:
-```bash
-StormByte-StageManager use <index>
-```
-- Replace `<index>` with the index of the tarball from the `list` command.
-- After exiting the chroot (`exit`), you will be prompted to save or discard your changes.
-
-### Rebase a Tarball
-To create a new tarball based on an existing one:
-```bash
-StormByte-StageManager rebase <index> <new_file_name>
-```
-- Replace `<index>` with the index of the tarball from the `list` command.
-- Replace `<new_file_name>` with the desired name for the new tarball.
-
-### Convert a Tarball
-To convert a tarball to a different compression format:
-```bash
-StormByte-StageManager convert <index> <compression_format>
-```
-- Replace `<compression_format>` with one of the supported formats: `gzip`, `bzip2`, `xz`, `zstd`.
-
-### Export a Tarball
-To export a tarball to a specific folder with a new compression format:
-```bash
-StormByte-StageManager export <index> <destination_folder> <compression_format>
-```
-
-### Delete a Tarball
-To delete a tarball:
-```bash
-StormByte-StageManager delete <index>
-```
-
-### Rename a Tarball
-To rename a tarball:
-```bash
-StormByte-StageManager rename <index> <new_file_name>
-```
-
-### Download a Gentoo Stage Tarball
-To download a Gentoo stage tarball for a specific architecture and profile:
-```bash
-StormByte-StageManager download <arch> <profile>
-```
-- Replace `<arch>` with the desired architecture (e.g., `amd64`, `i686`).
-- Replace `<profile>` with the desired profile (e.g., `default`, `hardened`, `systemd`).
-
-### Manage Notes
-To edit or delete notes for a tarball:
-```bash
-StormByte-StageManager notes <index> edit
-StormByte-StageManager notes <index> delete
-```
-
-## Example Workflow
-
-1. **List available tarballs**:
-   ```bash
-   StormByte-StageManager list
-   ```
-   Output:
-   ```
-   [0] 1.2G stage3-amd64.tar.xz
-   [1] 1.3G stage3-hardened.tar.xz
-   ```
-
-2. **Use a tarball**:
-   ```bash
-   StormByte-StageManager use 0
-   ```
-   This will chroot into the environment. After exiting (`exit`), you will be prompted to save or discard changes.
-
-3. **Rebase the tarball**:
-   ```bash
-   StormByte-StageManager rebase 0 stage3-amd64-updated.tar.xz
-   ```
-
-4. **Convert the tarball to a different format**:
-   ```bash
-   StormByte-StageManager convert 0 gzip
-   ```
-
-5. **Download a new Gentoo stage tarball**:
-   ```bash
-   StormByte-StageManager download amd64 default
-   ```
-
-## Notes
-
-- Ensure that all required tools and dependencies are installed before using the script.
-- The script requires root privileges for certain operations (e.g., mounting system directories, chrooting).
-- **Important**: After adding or removing a tarball, the indexes may change. Always run the `list` command again before referencing a tarball to avoid unintended operations.
+Contributions and bug reports are welcome. Fork the repository, create a branch, and open a pull request. Please include a clear description and minimal repro steps for any bug report.
 
 ## License
 
-This project is licensed under the **GNU General Public License v3.0**. See the [LICENSE.txt](LICENSE.txt) file for details.
+This project is licensed under the GNU General Public License v3.0 — see the bundled `LICENSE.txt`.
 
 ## Author
 
-Developed by **David C. Manuelda** a.k.a **StormByte** (<StormByte@gmail.com>).
-
-## Contribution
-
-Contributions are welcome! Feel free to submit issues or pull requests to improve the script.
+Developed and maintained by David C. Manuelda (StormByte) — StormByte@gmail.com
