@@ -57,7 +57,7 @@ tar_decompress="tar -xpf - --numeric-owner --xattrs-include='*.*'"
 if [ -f /usr/bin/pigz ]; then
     gzip="pigz -${GZIP_COMPRESSION_LEVEL} -c"
 else
-    gzip="gzip2 -${GZIP_COMPRESSION_LEVEL} -c"
+    gzip="gzip -${GZIP_COMPRESSION_LEVEL} -c"
 fi
 if [ -f /usr/bin/lbzip2 ]; then
     bzip2="lbzip2 -${BZIP_COMPRESSION_LEVEL} -c"
