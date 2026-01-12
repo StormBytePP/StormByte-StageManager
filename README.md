@@ -1,91 +1,126 @@
 # StormByte-StageManager
 
-![License: GPL v3](https://img.shields.io/badge/license-GPLv3-blue.svg)
-![Language: Bash](https://img.shields.io/badge/language-Bash-4EAA25.svg)
-![Release](https://img.shields.io/badge/release-3.1.0-lightgrey)
+[![License: GPL v3](https://img.shields.io/badge/license-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![Language: Bash](https://img.shields.io/badge/language-Bash-4EAA25.svg)](https://www.gnu.org/software/bash/)
+[![Release](https://img.shields.io/badge/release-3.2.0-lightgrey)](https://github.com/StormBytePP/StormByte-StageManager/releases/tag/v3.2.0)
 
-`StormByte-StageManager` is a focused Bash utility to simplify maintenance of Linux stage tarballs (primarily Gentoo stage3 archives). It automates extracting, preparing, chrooting, cleaning, and recompressing stage tarballs so you can manage chroot environments quickly and reproducibly.
+`StormByte-StageManager` is a streamlined Bash script designed to simplify the management of Linux stage tarballs, with a focus on Gentoo stage3 archives. It automates the entire workflow: extracting tarballs, setting up chroot environments, handling mounts and binds, cleaning up, and recompressing changes. This tool is ideal for developers, system administrators, and Gentoo enthusiasts who need reproducible, efficient chroot operations without manual hassle.
 
-**Why this exists**
-- Managing stage tarballs manually (mounts, tmpfs/zram, caches, chroot upkeep, and recompression) is error-prone and repetitive. This tool bundles common operations into a safe, scriptable workflow.
+## Why Use This Tool?
 
-**Use cases**
-- Prepare an editable chroot from a stage tarball and re-export it after changes.
-- Rebase or clone an existing stage tarball into a new file name/format.
-- Convert or export stage tarballs between compression formats.
-- Maintain ccache/sccache, pkgdir and distfiles bindings while chrooting.
-- Download official Gentoo stage tarballs for standard architectures/profiles.
+Managing stage tarballs manually involves repetitive tasks like mounting system directories, handling temporary storage (e.g., tmpfs or zram), managing caches (ccache/sccache), and recompressing archives. `StormByte-StageManager` encapsulates these into safe, configurable commands, reducing errors and saving time. Key benefits:
+- **Portability**: Self-contained operations with optional file-based caching for easy backups or multi-machine use.
+- **Flexibility**: Supports multiple compression formats, storage backends, and bind mounts for packages/distfiles/caches.
+- **Efficiency**: Uses accelerated compressors (e.g., pigz, pxz) when available and provides progress indicators via `pv`.
 
-**Supported compression formats**: gzip, bzip2, xz, zstd
+## Key Features
 
-**Storage backends for temporary mounts**: folder (plain directory), tmpfs, zram (with btrfs + zstd optional).
+- Extract, chroot, modify, and recompress stage tarballs seamlessly.
+- Rebase/clone tarballs to new files with automatic compression based on extension.
+- Convert/export tarballs between formats (gzip, bzip2, xz, zstd).
+- Download official Gentoo stage3 tarballs for common architectures (i486, i686, amd64, x32) and profiles (default, hardened, systemd, etc.).
+- Manage notes for individual tarballs.
+- Optional bind mounts or file-based storage for ccache/sccache, pkgdir, and distfiles.
+- Temporary storage options: plain folder, tmpfs, or zram (with btrfs checksum and zstd compression).
 
-**Important**: Many operations require root privileges (mounting, chroot, manipulating loop/zram devices).
+## Installation
 
-**Contents**
-- `StormByte-StageManager` — main executable script
-- `StormByte-StageManager.conf` — example configuration shipped with the project
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/StormBytePP/StormByte-StageManager.git
+   cd StormByte-StageManager
+   ```
 
-## Quick Start
+2. Make the script executable:
+   ```bash
+   chmod +x StormByte-StageManager
+   ```
 
-1. Make the script executable:
+3. Copy and customize the configuration:
+   ```bash
+   sudo mkdir -p /etc/conf.d/
+   sudo cp StormByte-StageManager.conf /etc/conf.d/
+   sudo nano /etc/conf.d/StormByte-StageManager.conf  # Edit as needed
+   ```
 
+For standalone use, place `functions.sh` and `StormByte-StageManager.conf` in the same directory as the script.
+
+## Dependencies
+
+- **Required**: bash, tar, curl (for downloads), pv (for progress bars).
+- **Optional**:
+  - Accelerated compressors: pigz (gzip), lbzip2 (bzip2), pxz (xz), pzstd (zstd).
+  - btrfs-progs (for zram with btrfs).
+  - zramctl (for zram storage).
+- Root privileges are needed for mounts, chroot, and device operations.
+
+Install on Gentoo:
 ```bash
-chmod +x StormByte-StageManager
+emerge --ask app-arch/pigz app-arch/lbzip2 app-arch/pxz app-arch/zstd sys-fs/btrfs-progs sys-apps/util-linux app-misc/pv
 ```
 
-2. Edit `StormByte-StageManager.conf` to point `TARBALL_FOLDER` and set desired storage behavior.
+## Usage
 
-3. Run help to explore commands:
+Run `./StormByte-StageManager help` for an overview or `./StormByte-StageManager help <command>` for details.
 
-```bash
-./StormByte-StageManager help
-```
+### Common Commands
 
-## Common Commands
+| Command | Description | Example |
+|---------|-------------|---------|
+| `list` | List tarballs in `TARBALL_FOLDER` with indexes and sizes. | `./StormByte-StageManager list` |
+| `use <index>` | Extract, chroot, and optionally save changes. | `./StormByte-StageManager use 0` |
+| `rebase <index> <new_file>` | Clone and rebase to a new file (compression from extension). | `./StormByte-StageManager rebase 0 new-stage.txz` |
+| `convert <index> <format>` | Recompress to a new format (e.g., xz). | `./StormByte-StageManager convert 0 xz` |
+| `export <index> <dest_folder> <format>` | Export to a folder with new format and dated name. | `./StormByte-StageManager export 0 /backup xz` |
+| `delete <index>` | Delete a tarball. | `./StormByte-StageManager delete 0` |
+| `rename <index> <new_name>` | Rename a tarball. | `./StormByte-StageManager rename 0 renamed-stage.txz` |
+| `download <arch> <profile>` | Fetch official Gentoo stage3. | `./StormByte-StageManager download amd64 hardened` |
+| `notes <index> edit\|delete` | Manage notes for a tarball. | `./StormByte-StageManager notes 0 edit` |
 
-- `list` — list available tarballs in `TARBALL_FOLDER` with indexes.
-- `use <index>` — extract selected tarball into temporary storage, mount system binds, chroot into it, and prompt to save changes after exit.
-- `rebase <index> <new_file_name>` — copy and rebase an archive into a new file.
-- `convert <index> <compression_format>` — recompress an archive into another format.
-- `export <index> <destination> <compression_format>` — export to a different folder/format.
-- `delete <index>` — remove an archive from the store.
-- `rename <index> <new_file_name>` — rename an archive.
-- `download <arch> <profile>` — fetch an official stage tarball for the specified arch/profile.
-- `notes <index> edit|delete` — manage notes for a specific stage file.
+### Examples
 
-See `./StormByte-StageManager help <command>` for detailed usage and examples.
+- Download and use an amd64 stage:
+  ```bash
+  ./StormByte-StageManager download amd64 default
+  ./StormByte-StageManager list  # Note the index
+  ./StormByte-StageManager use <index>
+  # Inside chroot: make changes, e.g., emerge packages
+  exit  # Prompt to save
+  ```
 
-## Configuration highlights
+- Rebase with new compression:
+  ```bash
+  ./StormByte-StageManager rebase 0 my-custom-stage.tzd
+  ```
 
-- `TARBALL_FOLDER`: directory that contains stage tarballs.
-- `STORAGE_SYSTEM`: `folder`, `tmpfs` or `zram` — controls temporary extraction/mount.
-- `STORAGE_SIZE`: size for tmpfs/zram (e.g., `20G`).
-- Compression level variables: `GZIP_COMPRESSION_LEVEL`, `BZIP_COMPRESSION_LEVEL`, `XZ_COMPRESSION_LEVEL`, `ZSTD_COMPRESSION_LEVEL`.
-- Cache and bind options: `USE_CCACHE`, `USE_CCACHE_BIND`, `USE_SCCACHE`, `USE_SCCACHE_BIND`, `USE_PKG_BIND`, `USE_DISTFILES_BIND`.
+## Configuration
 
-Edit the provided `StormByte-StageManager.conf` to match your environment and copy it to `/etc/conf.d/` for system-wide usage if desired.
+The config file (`/etc/conf.d/StormByte-StageManager.conf` or local) allows customization. Key options:
 
-## Requirements
+- `TARBALL_FOLDER`: Path to store tarballs (default: `/StormWarehouse/Software/Gentoo`).
+- `STORAGE_SYSTEM`: `folder`, `tmpfs`, or `zram`.
+- `STORAGE_SIZE`: e.g., `20G` (for tmpfs/zram).
+- Compression levels: `GZIP_COMPRESSION_LEVEL=9`, etc.
+- Caches: `USE_CCACHE=YES`, `USE_CCACHE_BIND=YES` (host bind) or `USE_CCACHE_FILE=YES` (file-based .txz).
+- Binds: `USE_PKG_BIND=YES`, `PKG_DIR=/var/db/repos/packages`.
+- Checksum for zram+btrfs: `BTRFS_CHECKSUM=sha256`.
 
-- bash (POSIX-compatible)
-- tar
-- curl (for downloads)
-- btrfs-progs (when using zram with btrfs)
-- Optional accelerated compressors: `pigz`, `pbzip2`/`lbzip2`, `pxz`, `zstd`
+Note: For caches, bind is faster for repeated use; file-based is portable but involves compress/decompress overhead.
 
-## Security & Privileges
+## Security Considerations
 
-Many operations require root. Be cautious when running scripts that mount filesystems or call `chroot`. Review configuration settings (especially bind mounts like `PKG_DIR` and `DISTFILES_DIR`) before running on production systems.
+- Runs as root for mounts/chroot—review code and configs before use.
+- Bind mounts expose host directories to chroot; disable if unneeded.
+- Lockfiles prevent concurrent ops on the same tarball.
 
 ## Contributing
 
-Contributions and bug reports are welcome. Fork the repository, create a branch, and open a pull request. Please include a clear description and minimal repro steps for any bug report.
+Fork, branch, and PR! Include tests or examples for new features. Report issues with steps to reproduce.
 
 ## License
 
-This project is licensed under the GNU General Public License v3.0 — see the bundled `LICENSE.txt`.
+GNU General Public License v3.0 (see `LICENSE.txt`).
 
 ## Author
 
-Developed and maintained by David C. Manuelda (StormByte) — StormByte@gmail.com
+David C. Manuelda (StormByte) — [StormByte@gmail.com](mailto:StormByte@gmail.com)  
