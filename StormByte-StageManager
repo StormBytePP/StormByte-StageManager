@@ -818,6 +818,8 @@ function saveChanges() {
 		if [ "${USE_CCACHE_FILE}" == "YES" ] || [ "${USE_SCCACHE_FILE}" == "YES" ]; then
 			saveCache
 		fi
+		# Stop sccache server before cleaning caches to avoid race conditions
+		stopSccacheServer
 		cleanCaches
 		# If we came from a rebase request, then we need to temporary set file and revert back for cleaning purposes
 		if [ "$#" -ne 0 ]; then
@@ -830,7 +832,8 @@ function saveChanges() {
 			setAndCheckFile
 		fi
 	else
-		# If content was not saved, set readonly so it can be unmounted safely
+		# If content was not saved, stop any sccache server and set readonly so it can be unmounted safely
+		stopSccacheServer
 		readonlyTEMP
 	fi
 }
@@ -893,7 +896,22 @@ function saveCache() {
 ##
 function doChroot() {
 	echo "Entering chroot, don't forget to run env-update && . /etc/profile"
-	chroot "${tmp_folder}" "/bin/bash"
+	extra_commands=""
+	if [ "${USE_SCCACHE}" == "YES" ]; then
+		extra_commands+="export SCCACHE_DIR=\"${SCCACHE_DIR}\"; export SCCACHE_CACHE_SIZE=20G; export SCCACHE_IDLE_TIMEOUT=0; /usr/bin/sccache --start-server;"
+	fi
+	chroot "${tmp_folder}" "/bin/bash" -c "${extra_commands} exec /bin/bash --login"
+}
+
+##
+# @brief Stops the sccache server running inside the chroot (if any).
+##
+function stopSccacheServer() {
+	if [ "${USE_SCCACHE}" == "YES" ]; then
+		if [ -x "${tmp_folder}/usr/bin/sccache" ]; then
+			handleCommand "chroot \"${tmp_folder}\" /usr/bin/sccache --stop-server || true" "Stopping Sccache server"
+		fi
+	fi
 }
 
 ##
