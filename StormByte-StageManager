@@ -823,10 +823,15 @@ function saveChanges() {
 		if [ "$#" -ne 0 ]; then
 			setAndCheckFile "${TARBALL_FOLDER}/${parameters[2]}"
 		fi
+		# Set readonly so nothing is injected while compressing
+		readonlyTEMP
 		compressArchive
 		if [ "$#" -ne 0 ]; then
 			setAndCheckFile
 		fi
+	else
+		# If content was not saved, set readonly so it can be unmounted safely
+		readonlyTEMP
 	fi
 }
 
@@ -957,7 +962,6 @@ function doUse() {
 	unmountDistfiles
 	unmountPKG
 	cleanStage
-	readonlyTEMP
 	saveChanges
 	unmountTEMP
 	deleteTMPFolder
@@ -1056,7 +1060,6 @@ function doRebase() {
 	unmountDistfiles
 	unmountPKG
 	cleanStage
-	readonlyTEMP
 	saveChanges "${TARBALL_FOLDER}/${parameters[2]}"
 	unmountTEMP
 	deleteTMPFolder
