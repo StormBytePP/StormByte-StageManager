@@ -26,7 +26,7 @@ fi
 
 loadConfig
 
-version="3.1.0"
+version="3.2.0"
 
 ##
 # @brief Current working directory.
@@ -37,9 +37,9 @@ current_folder=`pwd`
 # @brief List of tarball files in the specified folder.
 ##
 file_list=($(find "$TARBALL_FOLDER" -maxdepth 1 -type f \
-    -iregex '.*\.\(tar\.gz\|tgz\|tar\.bz2\|tbz2\|tar\.xz\|txz\|tar\.zstd\|tzd\)$' \
-    ! -name 'ccache.txz' \
-    | awk '{print length, $0}' | sort -n | cut -d" " -f2-))
+	-iregex '.*\.\(tar\.gz\|tgz\|tar\.bz2\|tbz2\|tar\.xz\|txz\|tar\.zstd\|tzd\)$' \
+	! -name 'ccache.txz' ! -name 'sccache.txz' \
+	| awk '{print length, $0}' | sort -n | cut -d" " -f2-))
 
 
 # Variables for tarball processing
@@ -88,7 +88,10 @@ available_compression_extensions=( tar.gz tgz tar.bz2 tbz2 tar.xz txz tar.zstd t
 
 # ZRAM and ccache variables
 zram_device=""
+
+# Cache variables
 ccache_file="${TARBALL_FOLDER}/ccache.txz"
+sccache_file="${TARBALL_FOLDER}/sccache.txz"
 
 ##
 # @brief Base URL for downloading Gentoo stages.
@@ -314,36 +317,60 @@ function checkVars() {
 		echo "Zstd compression level is not in a range between 1 and 19!"
 		errors=1
 	fi
-	if [ "${USE_CCACHE_BIND}" != "NO" ] && [ "${USE_CCACHE_BIND}" != "YES" ]; then
-		echo "Ccache bind variable is not set to either YES or NO"
-		errors=1
-	fi
 	if [ "${USE_CCACHE}" != "NO" ] && [ "${USE_CCACHE}" != "YES" ]; then
 		echo "Use ccache variable is not set to either YES or NO"
 		errors=1
 	fi
 	if [ "${USE_CCACHE}" != "NO" ]; then
+		if [ "${USE_CCACHE_BIND}" != "NO" ] && [ "${USE_CCACHE_BIND}" != "YES" ]; then
+			echo "Ccache bind variable is not set to either YES or NO"
+			errors=1
+		fi
+		if [ "${USE_CCACHE_FILE}" != "NO" ] && [ "${USE_CCACHE_FILE}" != "YES" ]; then
+			echo "Ccache bind variable is not set to either YES or NO"
+			errors=1
+		fi
+		if [ "${USE_CCACHE_BIND}" != "YES" ] && [ "${USE_CCACHE_FILE}" != "YES" ]; then
+			echo "If USE_CCACHE is set to YES, either USE_CCACHE_BIND or USE_CCACHE_FILE must be set to YES"
+			errors=1
+		elif [ "${USE_CCACHE_FILE}" == "YES" ] && [ "${USE_CCACHE_BIND}" == "YES" ]; then
+			echo "Only one of USE_CCACHE_FILE or USE_CCACHE_BIND can be set to YES"
+			errors=1
+		fi
 		if [ -z "${CCACHE_DIR}" ]; then
 			echo "Ccache folder variable is empty or undefined!"
 			errors=1
-		elif [ ! -d "${CCACHE_DIR}" ]; then
+		fi
+		if [ ! -d "${CCACHE_DIR}" ] && [ "${USE_CCACHE_BIND}" == "YES" ]; then
 			echo "Ccache folder ${CCACHE_DIR} does NOT exist"
 			errors=1
 		fi
-	fi
-	if [ "${USE_SCCACHE_BIND}" != "NO" ] && [ "${USE_SCCACHE_BIND}" != "YES" ]; then
-		echo "Sccache bind variable is not set to either YES or NO"
-		errors=1
 	fi
 	if [ "${USE_SCCACHE}" != "NO" ] && [ "${USE_SCCACHE}" != "YES" ]; then
 		echo "Use sccache variable is not set to either YES or NO"
 		errors=1
 	fi
 	if [ "${USE_SCCACHE}" != "NO" ]; then
+		if [ "${USE_SCCACHE_BIND}" != "NO" ] && [ "${USE_SCCACHE_BIND}" != "YES" ]; then
+			echo "Sccache bind variable is not set to either YES or NO"
+			errors=1
+		fi
+		if [ "${USE_SCCACHE_FILE}" != "NO" ] && [ "${USE_SCCACHE_FILE}" != "YES" ]; then
+			echo "Sccache file variable is not set to either YES or NO"
+			errors=1
+		fi
+		if [ "${USE_SCCACHE_BIND}" != "YES" ] && [ "${USE_SCCACHE_FILE}" != "YES" ]; then
+			echo "If USE_SCCACHE is set to YES, either USE_SCCACHE_BIND or USE_SCCACHE_FILE must be set to YES"
+			errors=1
+		elif [ "${USE_SCCACHE_FILE}" == "YES" ] && [ "${USE_SCCACHE_BIND}" == "YES" ]; then
+			echo "Only one of USE_SCCACHE_FILE or USE_SCCACHE_BIND can be set to YES"
+			errors=1
+		fi
 		if [ -z "${SCCACHE_DIR}" ]; then
 			echo "Sccache folder variable is empty or undefined!"
 			errors=1
-		elif [ ! -d "${SCCACHE_DIR}" ]; then
+		fi
+		if [ ! -d "${SCCACHE_DIR}" ] && [ "${USE_SCCACHE_BIND}" == "YES" ]; then
 			echo "Sccache folder ${SCCACHE_DIR} does NOT exist"
 			errors=1
 		fi
@@ -672,9 +699,9 @@ function mountDistfiles() {
 }
 
 ##
-# @brief Mounts the ccache directory in the chroot environment.
+# @brief Prepares the cache directory in the chroot environment.
 ##
-function mountCCache() {
+function prepareCache() {
 	if [ "${USE_CCACHE}" == "YES" ]; then
 		mkdir -p "${tmp_folder}${CCACHE_DIR}"
 		touch "${tmp_folder}${CCACHE_DIR}/.keep"
@@ -741,9 +768,9 @@ function unmountDistfiles() {
 }
 
 ##
-# @brief Unmounts the ccache directory in the chroot environment.
+# @brief Unprepare the cache directory in the chroot environment.
 ##
-function unmountCCache() {
+function unprepareCache() {
 	if [ "${USE_CCACHE}" == "YES" ]; then
 		cd "${current_folder}"
 		if [ "${USE_CCACHE_BIND}" == "YES" ]; then
@@ -787,8 +814,8 @@ function saveChanges() {
 		reply=$REPLY
 	done
 	if [[ $reply =~ ^[Yy]$ ]]; then
-		if [ "${USE_CCACHE_FILE}" == "YES" ]; then
-			undoCcache
+		if [ "${USE_CCACHE_FILE}" == "YES" ] || [ "${USE_SCCACHE_FILE}" == "YES" ]; then
+			saveCache
 		fi
 		# If we came from a rebase request, then we need to temporary set file and revert back for cleaning purposes
 		if [ "$#" -ne 0 ]; then
@@ -813,13 +840,22 @@ function compressArchive() {
 ##
 # @brief Extracts the ccache data into the chroot environment.
 ##
-function doCcache() {
+function unpackCache() {
 	if [ "${USE_CCACHE_FILE}" == "YES" ]; then
-		mkdir -p "${tmp_folder}/${CCACHE_OUT_FOLDER}"
+		mkdir -p "${tmp_folder}/${CCACHE_DIR}"
 		if [ -f "${ccache_file}" ]; then
 			local prev_folder=`pwd`
-			cd "${tmp_folder}/${CCACHE_OUT_FOLDER}"
+			cd "${tmp_folder}/${CCACHE_DIR}"
 			handleCommandWithOutput "pv ${ccache_file} | ${xz} -d - | ${tar_decompress}" "Extracting CCache data..."
+			cd "${prev_folder}"
+		fi
+	fi
+	if [ "${USE_SCCACHE_FILE}" == "YES" ]; then
+		mkdir -p "${tmp_folder}/${SCCACHE_DIR}"
+		if [ -f "${sccache_file}" ]; then
+			local prev_folder=`pwd`
+			cd "${tmp_folder}/${SCCACHE_DIR}"
+			handleCommandWithOutput "pv ${sccache_file} | ${xz} -d - | ${tar_decompress}" "Extracting Sccache data..."
 			cd "${prev_folder}"
 		fi
 	fi
@@ -828,12 +864,21 @@ function doCcache() {
 ##
 # @brief Compresses and saves the ccache data from the chroot environment.
 ##
-function undoCcache() {
-	local prev_folder=`pwd`
-	cd "${tmp_folder}/${CCACHE_OUT_FOLDER}"
-	handleCommandWithOutput "${tar_compress} | pv -s $(du -sbl . | awk '{print $1}') | ${xz} > ${ccache_file}" "Compressing CCache data"
-	handleCommand "find ${tmp_folder}/${CCACHE_OUT_FOLDER} -type d -exec rm -f {} \;" "Cleaning CCache folders"
-	cd "${prev_folder}"
+function saveCache() {
+	if [ "${USE_CCACHE_FILE}" == "YES" ]; then
+		local prev_folder=`pwd`
+		cd "${tmp_folder}/${SCCACHE_DIR}"
+		handleCommandWithOutput "${tar_compress} | pv -s $(du -sbl . | awk '{print $1}') | ${xz} > ${ccache_file}" "Compressing CCache data"
+		handleCommand "find ${tmp_folder}/${SCCACHE_DIR} -type d -exec rm -f {} \;" "Cleaning CCache folders"
+		cd "${prev_folder}"
+	fi
+	if [ "${USE_SCCACHE_FILE}" == "YES" ]; then
+		local prev_folder=`pwd`
+		cd "${tmp_folder}/${SCCACHE_DIR}"
+		handleCommandWithOutput "${tar_compress} | pv -s $(du -sbl . | awk '{print $1}') | ${xz} > ${sccache_file}" "Compressing Sccache data"
+		handleCommand "find ${tmp_folder}/${SCCACHE_DIR} -type d -exec rm -f {} \;" "Cleaning Sccache folders"
+		cd "${prev_folder}"
+	fi
 }
 
 ##
@@ -906,12 +951,12 @@ function doUse() {
 	extractArchive
 	mountPKG
 	mountDistfiles
-	mountCCache
-	doCcache
+	prepareCache
+	unpackCache
 	mountSystem
 	doChroot
 	unmountSystem
-	unmountCCache
+	unprepareCache
 	unmountDistfiles
 	unmountPKG
 	cleanStage
@@ -1005,12 +1050,12 @@ function doRebase() {
 	extractArchive "${TARBALL_FOLDER}/${parameters[2]}"
 	mountPKG
 	mountDistfiles
-	mountCCache
-	doCcache
+	prepareCache
+	unpackCache
 	mountSystem
 	doChroot
 	unmountSystem
-	unmountCCache
+	unprepareCache
 	unmountDistfiles
 	unmountPKG
 	cleanStage
@@ -1177,7 +1222,7 @@ function doNotes() {
 			;;
 		edit)
 			echo "Editing notes for `basename ${tarball_filename_fullpath}`"
-			if [ "${DETACH_NOTE_EDITOR}" = "YES" ]; then
+			if [ "${DETACH_NOTE_EDITOR}" == "YES" ]; then
 				"${TARBALL_NOTE_EDITOR}" "${tarball_filename_fullpath}.notes" > /dev/null 2>&1 &
 			else
 				"${TARBALL_NOTE_EDITOR}" "${tarball_filename_fullpath}.notes"
