@@ -853,6 +853,8 @@ function compressArchive() {
 function unpackCache() {
 	if [ "${USE_CCACHE_FILE}" == "YES" ]; then
 		mkdir -p "${tmp_folder}${CCACHE_DIR}"
+		chown -R portage:portage "${tmp_folder}${CCACHE_DIR}"
+		chmod -R 770 "${tmp_folder}${CCACHE_DIR}"
 		if [ -f "${ccache_file}" ]; then
 			local prev_folder=`pwd`
 			cd "${tmp_folder}${CCACHE_DIR}"
@@ -862,6 +864,8 @@ function unpackCache() {
 	fi
 	if [ "${USE_SCCACHE_FILE}" == "YES" ]; then
 		mkdir -p "${tmp_folder}${SCCACHE_DIR}"
+		chown -R portage:portage "${tmp_folder}${SCCACHE_DIR}"
+		chmod -R 770 "${tmp_folder}${SCCACHE_DIR}"
 		if [ -f "${sccache_file}" ]; then
 			local prev_folder=`pwd`
 			cd "${tmp_folder}${SCCACHE_DIR}"
@@ -898,7 +902,7 @@ function doChroot() {
 	echo "Entering chroot, don't forget to run env-update && . /etc/profile"
 	extra_commands=""
 	if [ "${USE_SCCACHE}" == "YES" ]; then
-		extra_commands+="export SCCACHE_DIR=\"${SCCACHE_DIR}\"; export SCCACHE_CACHE_SIZE=20G; export SCCACHE_IDLE_TIMEOUT=0; /usr/bin/sccache --start-server;"
+		extra_commands+="export SCCACHE_DIR=\"${SCCACHE_DIR}\"; export SCCACHE_CACHE_SIZE=20G; export SCCACHE_IDLE_TIMEOUT=0; su -s /bin/bash portage -c 'SCCACHE_DIR=\"${SCCACHE_DIR}\" SCCACHE_CACHE_SIZE=20G SCCACHE_IDLE_TIMEOUT=0 /usr/bin/sccache --start-server' 2>/dev/null || true;"
 	fi
 	chroot "${tmp_folder}" "/bin/bash" -c "${extra_commands} exec /bin/bash --login"
 }
@@ -909,7 +913,7 @@ function doChroot() {
 function stopSccacheServer() {
 	if [ "${USE_SCCACHE}" == "YES" ]; then
 		if [ -x "${tmp_folder}/usr/bin/sccache" ]; then
-			handleCommand "chroot \"${tmp_folder}\" /usr/bin/sccache --stop-server || true" "Stopping Sccache server"
+			handleCommand "chroot \"${tmp_folder}\" su -s /bin/bash portage -c '/usr/bin/sccache --stop-server' || chroot \"${tmp_folder}\" /usr/bin/sccache --stop-server || true" "Stopping Sccache server"
 		fi
 	fi
 }
