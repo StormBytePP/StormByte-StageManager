@@ -879,14 +879,14 @@ function unpackCache() {
 # @brief Compresses and saves the ccache data from the chroot environment.
 ##
 function saveCache() {
-	if [ "${USE_CCACHE_FILE}" == "YES" ]; then
+	if [ "${USE_CCACHE}" == "YES" ] && [ "${USE_CCACHE_FILE}" == "YES" ]; then
 		local prev_folder=`pwd`
 		cd "${tmp_folder}${CCACHE_DIR}"
 		handleCommandWithOutput "${tar_compress} | pv -s $(du -sbl . | awk '{print $1}') | ${xz} > ${ccache_file}" "Compressing CCache data"
 		handleCommand "rm -Rf ${tmp_folder}${CCACHE_DIR}/*" "Cleaning CCache contents after save"
 		cd "${prev_folder}"
 	fi
-	if [ "${USE_SCCACHE_FILE}" == "YES" ]; then
+	if [ "${USE_SCCACHE}" == "YES" ] && [ "${USE_SCCACHE_FILE}" == "YES" ]; then
 		local prev_folder=`pwd`
 		cd "${tmp_folder}${SCCACHE_DIR}"
 		handleCommandWithOutput "${tar_compress} | pv -s $(du -sbl . | awk '{print $1}') | ${xz} > ${sccache_file}" "Compressing Sccache data"
