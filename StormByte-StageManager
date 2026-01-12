@@ -1171,6 +1171,9 @@ function checkDownloadParameters() {
 ##
 # @brief Downloads a Gentoo stage tarball based on the specified architecture and profile.
 ##
+##
+# @brief Downloads a Gentoo stage tarball based on the specified architecture and profile.
+##
 function doDownload() {
 	arch="${parameters[1]}"
 	profile="${parameters[2]}"
@@ -1181,7 +1184,17 @@ function doDownload() {
 	checkDownloadParameters
 	createTMPFolder
 	handleCommand "curl -o ${tmp_folder}/${stage_info_file} ${stage_base_url}/${stage_info_file}" "Downloading stage information"
+	if [ ! -s "${tmp_folder}/${stage_info_file}" ]; then
+		echo "Failed to download or empty stage info file: ${stage_info_file}"
+		deleteTMPFolder
+		exit 1
+	fi
 	stage_file="`grep -m1 '^[^#].*\.tar\.xz' \"${tmp_folder}/${stage_info_file}\" | awk '{print $1}'`"
+	if [ -z "${stage_file}" ]; then
+		echo "Could not parse stage file path from info file: ${stage_info_file}"
+		deleteTMPFolder
+		exit 1
+	fi
 	handleCommand "curl -o ${tmp_folder}/`basename ${stage_file}` ${stage_base_url}/${stage_file}" "Downloading `basename ${stage_file}`"
 	handleCommand "mv '${tmp_folder}/`basename ${stage_file}`' '${TARBALL_FOLDER}/`basename ${stage_file}`'" "Moving stage data from temporary folder"
 	deleteTMPFolder
