@@ -904,9 +904,9 @@ function doChroot() {
 	echo "Entering chroot, don't forget to run env-update && . /etc/profile"
 	extra_commands=""
 	if [ "${USE_SCCACHE}" == "YES" ]; then
-		extra_commands+="export SCCACHE_DIR=\"${SCCACHE_DIR}\"; export SCCACHE_CACHE_SIZE=20G; export SCCACHE_IDLE_TIMEOUT=0; su -s /bin/bash portage -c 'SCCACHE_DIR=\"${SCCACHE_DIR}\" SCCACHE_CACHE_SIZE=20G SCCACHE_IDLE_TIMEOUT=0 /usr/bin/sccache --start-server' 2>/dev/null || true;"
+		extra_commands+="export SCCACHE_DIR=\"${SCCACHE_DIR}\"; export SCCACHE_CACHE_SIZE=20G; export SCCACHE_IDLE_TIMEOUT=0; su - portage -s /bin/bash -c 'SCCACHE_DIR=\"${SCCACHE_DIR}\" SCCACHE_CACHE_SIZE=20G SCCACHE_IDLE_TIMEOUT=0 /usr/bin/sccache --start-server' 2>/dev/null || true;"
 	fi
-	chroot "${tmp_folder}" "/bin/bash" -c "${extra_commands} exec /bin/bash --login"
+	chroot "${tmp_folder}" "/bin/bash" -c "${extra_commands} exec /bin/bash -i"
 }
 
 ##
@@ -915,7 +915,7 @@ function doChroot() {
 function stopSccacheServer() {
 	if [ "${USE_SCCACHE}" == "YES" ]; then
 		if [ -x "${tmp_folder}/usr/bin/sccache" ]; then
-			handleCommand "chroot \"${tmp_folder}\" su -s /bin/bash portage -c '/usr/bin/sccache --stop-server' || chroot \"${tmp_folder}\" /usr/bin/sccache --stop-server || true" "Stopping Sccache server"
+			handleCommand "chroot \"${tmp_folder}\" su - portage -s /bin/bash -c '/usr/bin/sccache --stop-server' || chroot \"${tmp_folder}\" /usr/bin/sccache --stop-server || true" "Stopping Sccache server"
 		fi
 	fi
 }
