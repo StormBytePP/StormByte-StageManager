@@ -16,12 +16,12 @@
 # This script can run standalone if its config and functions are in its folder
 workdir="${0%/*}"
 if [ -f "${workdir}/functions.sh" ]; then
-    source "${workdir}/functions.sh"
+	source "${workdir}/functions.sh"
 elif [ -f "/lib/StormByte/functions.sh" ]; then
-    source "/lib/StormByte/functions.sh"
+	source "/lib/StormByte/functions.sh"
 else
-    echo "Can't find functions.sh file in neither current directory neither /lib/StormByte"
-    exit 1
+	echo "Can't find functions.sh file in neither current directory neither /lib/StormByte"
+	exit 1
 fi
 
 loadConfig
@@ -55,19 +55,19 @@ tar_decompress="tar -xpf - --numeric-owner --xattrs-include='*.*'"
 
 # Compression tools
 if [ -f /usr/bin/pigz ]; then
-    gzip="pigz -${GZIP_COMPRESSION_LEVEL} -c"
+	gzip="pigz -${GZIP_COMPRESSION_LEVEL} -c"
 else
-    gzip="gzip -${GZIP_COMPRESSION_LEVEL} -c"
+	gzip="gzip -${GZIP_COMPRESSION_LEVEL} -c"
 fi
 if [ -f /usr/bin/lbzip2 ]; then
-    bzip2="lbzip2 -${BZIP_COMPRESSION_LEVEL} -c"
+	bzip2="lbzip2 -${BZIP_COMPRESSION_LEVEL} -c"
 else
-    bzip2="bzip2 -${BZIP_COMPRESSION_LEVEL} -c"
+	bzip2="bzip2 -${BZIP_COMPRESSION_LEVEL} -c"
 fi
 if [ -f /usr/bin/pxz ]; then
-    xz="pxz -${XZ_COMPRESSION_LEVEL}T0 -c"
+	xz="pxz -${XZ_COMPRESSION_LEVEL}T0 -c"
 else
-    xz="xz -${XZ_COMPRESSION_LEVEL}T0 -c"
+	xz="xz -${XZ_COMPRESSION_LEVEL}T0 -c"
 fi
 zstd="pzstd -${ZSTD_COMPRESSION_LEVEL}q -c"
 
@@ -104,9 +104,9 @@ gentoo_base_url="https://repo.ifca.es/gentoo-distfiles/releases"
 # Prints the version and author information.
 ##
 function header() {
-    echo "StormByte Gentoo Stage Manager Version ${version}"
-    echo "Author: David C. Manuelda a.k.a StormByte <StormByte@gmail.com>"
-    echo ""
+	echo "StormByte Gentoo Stage Manager Version ${version}"
+	echo "Author: David C. Manuelda a.k.a StormByte <StormByte@gmail.com>"
+	echo ""
 }
 
 ##
@@ -115,12 +115,12 @@ function header() {
 # Provides a summary of available commands and their usage.
 ##
 function usage() {
-    echo "This script will handle a gentoo chroot from a compressed tarball, it will mount all the needed points, chroot to it, clean, and make changes to compressed file again"
-    echo "Configuration is located in /etc/conf.d/StormByte-StageManager.conf"
-    echo "Usage is $self <command> <arguments>"
-    echo "Available commands are: ${available_commands[*]}"
-    echo "For more detailed help, use $self help <command> or $self help compression for more information about compression"
-    echo "See configuration file $config_file for more tweaking options"
+	echo "This script will handle a gentoo chroot from a compressed tarball, it will mount all the needed points, chroot to it, clean, and make changes to compressed file again"
+	echo "Configuration is located in /etc/conf.d/StormByte-StageManager.conf"
+	echo "Usage is $self <command> <arguments>"
+	echo "Available commands are: ${available_commands[*]}"
+	echo "For more detailed help, use $self help <command> or $self help compression for more information about compression"
+	echo "See configuration file $config_file for more tweaking options"
 }
 
 ##
@@ -129,9 +129,9 @@ function usage() {
 # Explains how to use the `list` command to view tarball files.
 ##
 function helpList() {
-    echo "Usage: $self list"
-    echo "This command will list the files in the folder specified which is ${TARBALL_FOLDER}, showing index number, size and filename."
-    echo "Use that index name to refer to the file in other commands"
+	echo "Usage: $self list"
+	echo "This command will list the files in the folder specified which is ${TARBALL_FOLDER}, showing index number, size and filename."
+	echo "Use that index name to refer to the file in other commands"
 }
 
 ##
@@ -140,8 +140,8 @@ function helpList() {
 # Explains how to use the `use` command to configure and enter a chroot.
 ##
 function helpUse() {
-    echo "Usage: $self use <index>"
-    echo "This command will use file specified as index (see list command) for configuring and entering a chroot"
+	echo "Usage: $self use <index>"
+	echo "This command will use file specified as index (see list command) for configuring and entering a chroot"
 }
 
 ##
@@ -150,9 +150,9 @@ function helpUse() {
 # Explains how to use the `rebase` command to copy and rebase a tarball.
 ##
 function helpRebase() {
-    echo "Usage: $self rebase <index> <new_file_name>"
-    echo "This command is similar to use command, but before entering chroot, it copies file specified from index (see list command) to destination folder set in $config under new_file_name."
-    echo "Compression method is determined by the extension, see $self help compression for more details"
+	echo "Usage: $self rebase <index> <new_file_name>"
+	echo "This command is similar to use command, but before entering chroot, it copies file specified from index (see list command) to destination folder set in $config under new_file_name."
+	echo "Compression method is determined by the extension, see $self help compression for more details"
 }
 
 ##
@@ -161,9 +161,9 @@ function helpRebase() {
 # Explains how to use the `convert` command to recompress a tarball.
 ##
 function helpConvert() {
-    echo "Usage: $self convert <index> <compression_format>"
-    echo "This command will copy file specified by index and recompress to selected compression_format, an error will be raised if target filename determined by compression already exists"
-    echo "For more info about compression use $self help compression"
+	echo "Usage: $self convert <index> <compression_format>"
+	echo "This command will copy file specified by index and recompress to selected compression_format, an error will be raised if target filename determined by compression already exists"
+	echo "For more info about compression use $self help compression"
 }
 
 ##
@@ -172,8 +172,8 @@ function helpConvert() {
 # Explains how to use the `export` command to export a tarball to a destination folder.
 ##
 function helpExport() {
-    echo "Usage: $self export <index> <destination_folder> <compression_format>"
-    echo "This command is similar to convert, but it allows to specify a destination folder for the new file. This folder has to exist or an error will be raised"
+	echo "Usage: $self export <index> <destination_folder> <compression_format>"
+	echo "This command is similar to convert, but it allows to specify a destination folder for the new file. This folder has to exist or an error will be raised"
 }
 
 ##
@@ -182,8 +182,8 @@ function helpExport() {
 # Explains how to use the `delete` command to remove a tarball.
 ##
 function helpDelete() {
-    echo "Usage: $self delete <index>"
-    echo "This command will delete a file specified by its index (see list command)"
+	echo "Usage: $self delete <index>"
+	echo "This command will delete a file specified by its index (see list command)"
 }
 
 ##
@@ -192,8 +192,8 @@ function helpDelete() {
 # Explains how to use the `rename` command to rename a tarball.
 ##
 function helpRename() {
-    echo "Usage: $self rename <index> <new_file_name>"
-    echo "This command allows renaming a file specified by index (see list command) to a new_file_name under the same folder."
+	echo "Usage: $self rename <index> <new_file_name>"
+	echo "This command allows renaming a file specified by index (see list command) to a new_file_name under the same folder."
 }
 
 ##
@@ -202,9 +202,9 @@ function helpRename() {
 # Explains available compression formats and extensions.
 ##
 function helpCompression() {
-    echo "This utility uses compression for keeping storage of its files, some times, depending on the command, compression is determined by the file extension or by the name of the compressor algorithm"
-    echo "Available extensions are: ${available_compression_extensions[*]}"
-    echo "Available compression formats are: ${available_compression_formats[*]}"
+	echo "This utility uses compression for keeping storage of its files, some times, depending on the command, compression is determined by the file extension or by the name of the compressor algorithm"
+	echo "Available extensions are: ${available_compression_extensions[*]}"
+	echo "Available compression formats are: ${available_compression_formats[*]}"
 }
 
 ##
@@ -213,34 +213,34 @@ function helpCompression() {
 # Explains how to use the `download` command to fetch a Gentoo stage tarball.
 ##
 function helpDownload() {
-    echo "Usage: $self download <arch> <profile>"
-    echo "This command will download a stage3 for selected arch and profile. If profile is not specified, a default one will be chosen"
-    echo "Available arches are i486, i686, amd64 and x32"
-    echo "Available profiles depends on selected arch:"
-    echo ""
-    echo "i486:"
-    echo "  * default"
-    echo ""
-    echo "i686:"
-    echo "  * default"
-    echo "  * hardened"
-    echo "  * systemd"
-    echo "  * uclibc-hardened"
-    echo "  * uclibc-vanilla"
-    echo ""
-    echo "amd64:"
-    echo "  * default (multilib)"
-    echo "  * hardened"
-    echo "  * nomultilib"
-    echo "  * systemd"
-    echo "  * hardened+nomultilib"
-    echo "  * hardened-selinux"
-    echo "  * hardened-selinux+nomultilib"
-    echo "  * uclibc-hardened"
-    echo "  * uclibc-vanilla"
-    echo ""
-    echo "x32:"
-    echo "  * default"
+	echo "Usage: $self download <arch> <profile>"
+	echo "This command will download a stage3 for selected arch and profile. If profile is not specified, a default one will be chosen"
+	echo "Available arches are i486, i686, amd64 and x32"
+	echo "Available profiles depends on selected arch:"
+	echo ""
+	echo "i486:"
+	echo "  * default"
+	echo ""
+	echo "i686:"
+	echo "  * default"
+	echo "  * hardened"
+	echo "  * systemd"
+	echo "  * uclibc-hardened"
+	echo "  * uclibc-vanilla"
+	echo ""
+	echo "amd64:"
+	echo "  * default (multilib)"
+	echo "  * hardened"
+	echo "  * nomultilib"
+	echo "  * systemd"
+	echo "  * hardened+nomultilib"
+	echo "  * hardened-selinux"
+	echo "  * hardened-selinux+nomultilib"
+	echo "  * uclibc-hardened"
+	echo "  * uclibc-vanilla"
+	echo ""
+	echo "x32:"
+	echo "  * default"
 }
 
 ##
@@ -249,10 +249,10 @@ function helpDownload() {
 # Explains how to use the `notes` command to manage notes for tarballs.
 ##
 function helpNotes() {
-    echo "Usage: $self notes <index> <subcommand>"
-    echo "This command will handle notes for a stage tarball index via specified subcommand:"
-    echo "  * edit -> Edits notes for specified stage via config's specified editor"
-    echo "  * delete -> Cleans stage notes"
+	echo "Usage: $self notes <index> <subcommand>"
+	echo "This command will handle notes for a stage tarball index via specified subcommand:"
+	echo "  * edit -> Edits notes for specified stage via config's specified editor"
+	echo "  * delete -> Cleans stage notes"
 }
 
 ##
@@ -269,19 +269,14 @@ function checkVars() {
 	fi
 	# We only check for STORAGE_SIZE if zram or tmpfs is set to be used
 	if [ "${STORAGE_SYSTEM}" = "zram" ] || [ "${STORAGE_SYSTEM}" = "tmpfs" ]; then
-		local re="^[0-9]+[MG]$" # For checking storage size
+		local re="^[1-9][0-9]*[MG]$" # For checking storage size (non-zero)
 		if ! [[ "${STORAGE_SIZE}" =~ $re ]]; then
-			echo "STORAGE_SIZE is either empty or invalid, check if its value is correct!"
+			echo "STORAGE_SIZE is either empty, zero, or invalid, check if its value is correct!"
 			errors=1
 		fi
 	fi
 	if [ "${STORAGE_SYSTEM}" = "zram" ]; then
 		if ! [ -z "${STORAGE_SYSTEM_ZRAM_COMPRESSION_LEVEL}" ]; then
-			local re="^[0-9]+[MG]$" # For checking storage size
-			if ! [[ "${STORAGE_SIZE}" =~ $re ]]; then
-				echo "STORAGE_SIZE is either empty or invalid, check if its value is correct!"
-				errors=1
-			fi
 			if [ "${STORAGE_SYSTEM_ZRAM_COMPRESSION_LEVEL}" -lt 0 ] || [ "${STORAGE_SYSTEM_ZRAM_COMPRESSION_LEVEL}" -gt 15 ]; then
 				echo "STORAGE_SYSTEM_ZRAM_COMPRESSION_LEVEL has a value which is less than 0 or greater than 15"
 				errors=1
@@ -327,7 +322,7 @@ function checkVars() {
 			errors=1
 		fi
 		if [ "${USE_CCACHE_FILE}" != "NO" ] && [ "${USE_CCACHE_FILE}" != "YES" ]; then
-			echo "Ccache bind variable is not set to either YES or NO"
+			echo "Ccache file variable is not set to either YES or NO"
 			errors=1
 		fi
 		if [ "${USE_CCACHE_BIND}" != "YES" ] && [ "${USE_CCACHE_FILE}" != "YES" ]; then
@@ -512,10 +507,10 @@ function unmountSystem() {
 function cleanStage() {
 	handleCommand "rm -Rf ${tmp_folder}/tmp/* ${tmp_folder}/var/tmp/portage" "Cleaning portage temporary files"
 	handleCommand "rm -Rf ${tmp_folder}{${PKG_DIR},${DISTFILES_DIR}}/*" "Cleaning files"
-	if [ "${USE_CCACHE}" != "NO" ]; then
+	if [ "${USE_CCACHE}" == "YES" ] && [ "${USE_CCACHE_BIND}" != "YES" ]; then
 		handleCommand "rm -Rf ${tmp_folder}${CCACHE_DIR}/*" "Cleaning ccache files"
 	fi
-	if [ "${USE_SCCACHE}" != "NO" ]; then
+	if [ "${USE_SCCACHE}" == "YES" ] && [ "${USE_SCCACHE_BIND}" != "YES" ]; then
 		handleCommand "rm -Rf ${tmp_folder}${SCCACHE_DIR}/*" "Cleaning sccache files"
 	fi
 	# It might happen that there are no log or no /var/tmp files in which case cleaning will fail so we do it safely
@@ -671,7 +666,7 @@ function mountZRAM() {
 ##
 function mountTMPFS() {
 	mkdir -p "${tmp_folder}"
-	handleCommand "mount -t tmpfs -o size=${STORAGE_SIZE} tmpfs ${tmp_folder} -o nr_inodes=0" "Mounting tmpfs storage"
+	handleCommand "mount -t tmpfs -o size=${STORAGE_SIZE} tmpfs ${tmp_folder}" "Mounting tmpfs storage"
 }
 
 ##
@@ -842,19 +837,19 @@ function compressArchive() {
 ##
 function unpackCache() {
 	if [ "${USE_CCACHE_FILE}" == "YES" ]; then
-		mkdir -p "${tmp_folder}/${CCACHE_DIR}"
+		mkdir -p "${tmp_folder}${CCACHE_DIR}"
 		if [ -f "${ccache_file}" ]; then
 			local prev_folder=`pwd`
-			cd "${tmp_folder}/${CCACHE_DIR}"
+			cd "${tmp_folder}${CCACHE_DIR}"
 			handleCommandWithOutput "pv ${ccache_file} | ${xz} -d - | ${tar_decompress}" "Extracting CCache data..."
 			cd "${prev_folder}"
 		fi
 	fi
 	if [ "${USE_SCCACHE_FILE}" == "YES" ]; then
-		mkdir -p "${tmp_folder}/${SCCACHE_DIR}"
+		mkdir -p "${tmp_folder}${SCCACHE_DIR}"
 		if [ -f "${sccache_file}" ]; then
 			local prev_folder=`pwd`
-			cd "${tmp_folder}/${SCCACHE_DIR}"
+			cd "${tmp_folder}${SCCACHE_DIR}"
 			handleCommandWithOutput "pv ${sccache_file} | ${xz} -d - | ${tar_decompress}" "Extracting Sccache data..."
 			cd "${prev_folder}"
 		fi
@@ -867,16 +862,16 @@ function unpackCache() {
 function saveCache() {
 	if [ "${USE_CCACHE_FILE}" == "YES" ]; then
 		local prev_folder=`pwd`
-		cd "${tmp_folder}/${SCCACHE_DIR}"
+		cd "${tmp_folder}${CCACHE_DIR}"
 		handleCommandWithOutput "${tar_compress} | pv -s $(du -sbl . | awk '{print $1}') | ${xz} > ${ccache_file}" "Compressing CCache data"
-		handleCommand "find ${tmp_folder}/${SCCACHE_DIR} -type d -exec rm -f {} \;" "Cleaning CCache folders"
+		handleCommand "rm -Rf ${tmp_folder}${CCACHE_DIR}/*" "Cleaning CCache contents after save"
 		cd "${prev_folder}"
 	fi
 	if [ "${USE_SCCACHE_FILE}" == "YES" ]; then
 		local prev_folder=`pwd`
-		cd "${tmp_folder}/${SCCACHE_DIR}"
+		cd "${tmp_folder}${SCCACHE_DIR}"
 		handleCommandWithOutput "${tar_compress} | pv -s $(du -sbl . | awk '{print $1}') | ${xz} > ${sccache_file}" "Compressing Sccache data"
-		handleCommand "find ${tmp_folder}/${SCCACHE_DIR} -type d -exec rm -f {} \;" "Cleaning Sccache folders"
+		handleCommand "rm -Rf ${tmp_folder}${SCCACHE_DIR}/*" "Cleaning Sccache contents after save"
 		cd "${prev_folder}"
 	fi
 }
@@ -897,24 +892,19 @@ function doList() {
 		echo "File list is empty, check ${TARBALL_FOLDER} contents!"
 		exit 1
 	fi
-	echo -e "Index\tSize\t\tFile Name"
+	printf "%-5s %-10s %s\n" "Index" "Size" "File Name"
 	for i in "${!file_list[@]}"; do
 		tarball_filename=`basename ${file_list[$i]}`
 		local size=`ls -s --block-size=1048576 "${file_list[$i]}" | cut -d' ' -f1`
-		echo -en "$i\t${size} MiB"
-		if [ "${#size}" -gt 3 ]; then
-			echo -en "\t"
-		else
-			echo -en "\t\t"
-		fi
-		echo -n "${tarball_filename}"
+		local size_str="${size} MiB"
+		local extra=""
 		if [ -f "${TARBALL_FOLDER}/${tarball_filename}.notes" ]; then
-			echo -n " (has notes)"
+			extra+=" (has notes)"
 		fi
 		if [ -f "/tmp/.${tarball_filename}.lock" ]; then
-			echo -n " (in use)"
+			extra+=" (in use)"
 		fi
-		echo "" # To force a new line
+		printf "%-5s %-10s %s%s\n" "$i" "$size_str" "${tarball_filename}" "$extra"
 	done
 }
 
@@ -1101,6 +1091,12 @@ function checkDownloadParameters() {
 				systemd)
 					stage_info_file="latest-stage3-i686-systemd.txt"
 					;;
+				uclibc-hardened)
+					stage_info_file="latest-stage3-i686-uclibc-hardened.txt"
+					;;
+				uclibc-vanilla)
+					stage_info_file="latest-stage3-i686-uclibc-vanilla.txt"
+					;;
 				*)
 					profile_error=1
 					;;
@@ -1129,6 +1125,23 @@ function checkDownloadParameters() {
 					;;
 				hardened-selinux+nomultilib)
 					stage_info_file="latest-stage3-amd64-hardened-nomultilib-selinux-openrc.txt"
+					;;
+				uclibc-hardened)
+					stage_info_file="latest-stage3-amd64-uclibc-hardened.txt"
+					;;
+				uclibc-vanilla)
+					stage_info_file="latest-stage3-amd64-uclibc-vanilla.txt"
+					;;
+				*)
+					profile_error=1
+					;;
+			esac
+			;;
+		x32)
+			stage_base_url="${gentoo_base_url}/x86/autobuilds"
+			case "${profile}" in
+				default)
+					stage_info_file="latest-stage3-x32.txt"
 					;;
 				*)
 					profile_error=1
@@ -1161,9 +1174,7 @@ function doDownload() {
 	checkDownloadParameters
 	createTMPFolder
 	handleCommand "curl -o ${tmp_folder}/${stage_info_file} ${stage_base_url}/${stage_info_file}" "Downloading stage information"
-	# stage_file="`sed -r -e 's/(^[^#]*$)/\1/g; /^#.*$/d;' ${tmp_folder}/${stage_info_file} | awk '{print $1}'`"
-	# Stage info file has now a PGP signature we need to ignore
-	stage_file="`sed '6q;d' < ${tmp_folder}/${stage_info_file} | awk -F' ' '{print $1}'`"
+	stage_file="`grep -m1 '^[^#].*\.tar\.xz' \"${tmp_folder}/${stage_info_file}\" | awk '{print $1}'`"
 	handleCommand "curl -o ${tmp_folder}/`basename ${stage_file}` ${stage_base_url}/${stage_file}" "Downloading `basename ${stage_file}`"
 	handleCommand "mv '${tmp_folder}/`basename ${stage_file}`' '${TARBALL_FOLDER}/`basename ${stage_file}`'" "Moving stage data from temporary folder"
 	deleteTMPFolder
@@ -1284,4 +1295,3 @@ function doInit() {
 
 # Start the script
 doInit
-
