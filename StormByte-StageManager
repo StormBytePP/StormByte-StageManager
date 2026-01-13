@@ -851,30 +851,28 @@ function compressArchive() {
 # @brief Extracts the ccache data into the chroot environment.
 ##
 function unpackCache() {
-	mkdir -p "${tmp_folder}${CCACHE_DIR}"
 	if [ "${USE_CCACHE}" == "YES" ] && [ "${USE_CCACHE_FILE}" == "YES" ]; then
 		if [ -f "${ccache_file}" ]; then
 			local prev_folder=`pwd`
 			cd "${tmp_folder}${CCACHE_DIR}"
 			handleCommandWithOutput "pv ${ccache_file} | ${bzip2} -d - | ${tar_decompress}" "Extracting CCache data..."
 			cd "${prev_folder}"
+			# Use chown from inside the chroot to resolve 'portage' to chroot's UID/GID
+			chroot "${tmp_folder}" chown -R portage:portage "${CCACHE_DIR}"
+			chmod -R 770 "${tmp_folder}${CCACHE_DIR}"
 		fi
 	fi
-	# Use chown from inside the chroot to resolve 'portage' to chroot's UID/GID
-	chroot "${tmp_folder}" chown -R portage:portage "${CCACHE_DIR}"
-	chmod -R 770 "${tmp_folder}${CCACHE_DIR}"
-	mkdir -p "${tmp_folder}${SCCACHE_DIR}"
 	if [ "${USE_SCCACHE}" == "YES" ] && [ "${USE_SCCACHE_FILE}" == "YES" ]; then
 		if [ -f "${sccache_file}" ]; then
 			local prev_folder=`pwd`
 			cd "${tmp_folder}${SCCACHE_DIR}"
 			handleCommandWithOutput "pv ${sccache_file} | ${bzip2} -d - | ${tar_decompress}" "Extracting Sccache data..."
 			cd "${prev_folder}"
+			# Use chown from inside the chroot to resolve 'portage' to chroot's UID/GID
+			chroot "${tmp_folder}" chown -R portage:portage "${SCCACHE_DIR}"
+			chmod -R 770 "${tmp_folder}${SCCACHE_DIR}"
 		fi
 	fi
-	# Use chown from inside the chroot to resolve 'portage' to chroot's UID/GID
-	chroot "${tmp_folder}" chown -R portage:portage "${SCCACHE_DIR}"
-	chmod -R 770 "${tmp_folder}${SCCACHE_DIR}"
 }
 
 ##
