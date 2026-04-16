@@ -26,7 +26,7 @@ fi
 
 loadConfig
 
-version="3.2.0"
+version="3.2.2"
 
 ##
 # @brief Current working directory.
@@ -50,8 +50,8 @@ tarball=""
 tarball_output=""
 compress=""
 extract=""
-tar_compress="tar -cpf - . --numeric-owner --xattrs-include='*.*' --ignore-failed-read"
-tar_decompress="tar -xpf - --numeric-owner --xattrs-include='*.*'"
+tar_compress="tar -cpf - . --numeric-owner --acls --xattrs --xattrs-include='*.*' --ignore-failed-read"
+tar_decompress="tar -xpf - --numeric-owner --acls --xattrs"
 
 # Compression tools
 if [ -f /usr/bin/pigz ]; then
