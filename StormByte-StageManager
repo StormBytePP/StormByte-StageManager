@@ -1,4 +1,5 @@
 #! /bin/bash
+set -o pipefail
 
 ##
 # @file StormByte-StageManager
@@ -26,7 +27,33 @@ fi
 
 loadConfig
 
-version="3.2.2"
+version="4.0.0"
+
+##
+# @brief Emergency cleanup handler for unexpected termination.
+#
+# Triggered on EXIT, INT, TERM, and HUP signals to ensure mounts and
+# temporary data are cleaned up even if the script is interrupted.
+##
+function emergencyCleanup() {
+	if [ -n "${tmp_folder}" ] && [ -d "${tmp_folder}" ]; then
+		cd "${current_folder}" 2>/dev/null || true
+		umount -Rl "${tmp_folder}" 2>/dev/null || true
+		rm -Rf "${tmp_folder}" 2>/dev/null || true
+	fi
+	if [ "${STORAGE_SYSTEM}" = "zram" ] && [ -n "${zram_device}" ]; then
+		sync 2>/dev/null || true
+		echo 1 > "/sys/block/${zram_device}/reset" 2>/dev/null || true
+	fi
+	if [ -n "${output_folder}" ] && [ -n "${tarball_output}" ]; then
+		rm -f "${output_folder}/.${tarball_output}.compress" 2>/dev/null || true
+	fi
+	if [ -n "${lockfile}" ] && [ -f "${lockfile}" ]; then
+		rm -f "${lockfile}" 2>/dev/null || true
+	fi
+}
+
+trap emergencyCleanup EXIT INT TERM HUP
 
 ##
 # @brief Current working directory.
@@ -256,6 +283,45 @@ function helpNotes() {
 }
 
 ##
+# @brief Validates that a path variable is safe for use in shell operations.
+#
+# Rejects paths that are not absolute, contain path traversal sequences (..),
+# or contain shell metacharacters. This prevents injection attacks when config
+# variables are used in shell commands.
+#
+# @param $1 The variable name (for error messages).
+# @param $2 The path value to validate.
+# @return 0 if safe, 1 if unsafe.
+##
+function validateSafePath() {
+	local var_name="$1"
+	local var_value="$2"
+	# Must be an absolute path
+	if [[ "${var_value}" != /* ]]; then
+		echo "${var_name} must be an absolute path: ${var_value}"
+		return 1
+	fi
+	# Whitelist: only alphanumeric characters, /, -, _, and . are allowed.
+	# This prevents shell metacharacters from being injected into commands.
+	if [[ "${var_value}" =~ [^a-zA-Z0-9/_.-] ]]; then
+		echo "${var_name} contains unsafe characters (only alphanumeric, /, -, _, . are allowed): ${var_value}"
+		return 1
+	fi
+	# Reject path traversal sequences (..) by checking each component
+	local saved_ifs="${IFS}"
+	IFS='/' read -ra path_parts <<< "${var_value}"
+	IFS="${saved_ifs}"
+	local part
+	for part in "${path_parts[@]}"; do
+		if [ "${part}" = ".." ]; then
+			echo "${var_name} contains path traversal sequence (..): ${var_value}"
+			return 1
+		fi
+	done
+	return 0
+}
+
+##
 # @brief Validates configuration variables.
 #
 # Checks the validity of configuration variables such as storage system, compression levels,
@@ -286,6 +352,8 @@ function checkVars() {
 
 	if [ -z "${TARBALL_FOLDER}" ]; then
 		echo "TARBALL_FOLDER variable is not set or empty!"
+		errors=1
+	elif ! validateSafePath "TARBALL_FOLDER" "${TARBALL_FOLDER}"; then
 		errors=1
 	fi
 	if [ ! -f "${TARBALL_NOTE_EDITOR}" ]; then
@@ -335,6 +403,8 @@ function checkVars() {
 		if [ -z "${CCACHE_DIR}" ]; then
 			echo "Ccache folder variable is empty or undefined!"
 			errors=1
+		elif ! validateSafePath "CCACHE_DIR" "${CCACHE_DIR}"; then
+			errors=1
 		fi
 		if [ ! -d "${CCACHE_DIR}" ] && [ "${USE_CCACHE_BIND}" == "YES" ]; then
 			echo "Ccache folder ${CCACHE_DIR} does NOT exist"
@@ -364,6 +434,8 @@ function checkVars() {
 		if [ -z "${SCCACHE_DIR}" ]; then
 			echo "Sccache folder variable is empty or undefined!"
 			errors=1
+		elif ! validateSafePath "SCCACHE_DIR" "${SCCACHE_DIR}"; then
+			errors=1
 		fi
 		if [ ! -d "${SCCACHE_DIR}" ] && [ "${USE_SCCACHE_BIND}" == "YES" ]; then
 			echo "Sccache folder ${SCCACHE_DIR} does NOT exist"
@@ -377,6 +449,8 @@ function checkVars() {
 	if [ -z "${PKG_DIR}" ]; then
 		echo "PKG folder variable is empty or undefined!"
 		errors=1
+	elif ! validateSafePath "PKG_DIR" "${PKG_DIR}"; then
+		errors=1
 	elif [ ! -d "${PKG_DIR}" ]; then
 		echo "PKG folder ${PKG_DIR} does NOT exist"
 		errors=1
@@ -387,6 +461,8 @@ function checkVars() {
 	fi
 	if [ -z "${DISTFILES_DIR}" ]; then
 		echo "Distfiles folder variable is empty or undefined!"
+		errors=1
+	elif ! validateSafePath "DISTFILES_DIR" "${DISTFILES_DIR}"; then
 		errors=1
 	elif [ ! -d "${DISTFILES_DIR}" ]; then
 		echo "Distfiles folder ${DISTFILES_DIR} does NOT exist"
@@ -506,7 +582,13 @@ function unmountSystem() {
 ##
 function cleanStage() {
 	handleCommand "rm -Rf ${tmp_folder}/tmp/* ${tmp_folder}/var/tmp/portage" "Cleaning portage temporary files"
-	handleCommand "rm -Rf ${tmp_folder}{${PKG_DIR},${DISTFILES_DIR}}/*" "Cleaning files"
+	echo -n "Cleaning files ... "
+	rm -Rf "${tmp_folder}${PKG_DIR}/"* "${tmp_folder}${DISTFILES_DIR}/"* > /dev/null 2>&1
+	if [ $? -ne 0 ]; then
+		cd "${current_folder}"
+		displayError "ERROR cleaning files in ${tmp_folder}"
+	fi
+	echo "OK"
 	# It might happen that there are no log or no /var/tmp files in which case cleaning will fail so we do it safely
 	handleCommand "find ${tmp_folder}/var/log -type f -exec rm -f {} \; && find ${tmp_folder}/var/tmp -type f -exec rm -f {} \;" "Cleaning logs"
 	handleCommand "rm -f ${tmp_folder}/root/.bash_history" "Cleaning history"
@@ -517,10 +599,22 @@ function cleanStage() {
 ##
 function cleanCaches() {
 	if [ "${USE_CCACHE}" == "YES" ] && [ "${USE_CCACHE_BIND}" != "YES" ]; then
-		handleCommand "rm -Rf ${tmp_folder}${CCACHE_DIR}/*" "Cleaning ccache files"
+		echo -n "Cleaning ccache files ... "
+		rm -Rf "${tmp_folder}${CCACHE_DIR}/"* > /dev/null 2>&1
+		if [ $? -ne 0 ]; then
+			cd "${current_folder}"
+			displayError "ERROR cleaning ccache files in ${tmp_folder}"
+		fi
+		echo "OK"
 	fi
 	if [ "${USE_SCCACHE}" == "YES" ] && [ "${USE_SCCACHE_BIND}" != "YES" ]; then
-		handleCommand "rm -Rf ${tmp_folder}${SCCACHE_DIR}/*" "Cleaning sccache files"
+		echo -n "Cleaning sccache files ... "
+		rm -Rf "${tmp_folder}${SCCACHE_DIR}/"* > /dev/null 2>&1
+		if [ $? -ne 0 ]; then
+			cd "${current_folder}"
+			displayError "ERROR cleaning sccache files in ${tmp_folder}"
+		fi
+		echo "OK"
 	fi
 }
 
@@ -883,14 +977,26 @@ function saveCache() {
 		local prev_folder=`pwd`
 		cd "${tmp_folder}${CCACHE_DIR}"
 		handleCommandWithOutput "${tar_compress} | pv -s $(du -sbl . | awk '{print $1}') | ${bzip2} > ${ccache_file}" "Compressing CCache data"
-		handleCommand "rm -Rf ${tmp_folder}${CCACHE_DIR}/*" "Cleaning CCache contents after save"
+		echo -n "Cleaning CCache contents after save ... "
+		rm -Rf "${tmp_folder}${CCACHE_DIR}/"* > /dev/null 2>&1
+		if [ $? -ne 0 ]; then
+			cd "${current_folder}"
+			displayError "ERROR cleaning CCache contents in ${tmp_folder}"
+		fi
+		echo "OK"
 		cd "${prev_folder}"
 	fi
 	if [ "${USE_SCCACHE}" == "YES" ] && [ "${USE_SCCACHE_FILE}" == "YES" ]; then
 		local prev_folder=`pwd`
 		cd "${tmp_folder}${SCCACHE_DIR}"
 		handleCommandWithOutput "${tar_compress} | pv -s $(du -sbl . | awk '{print $1}') | ${bzip2} > ${sccache_file}" "Compressing Sccache data"
-		handleCommand "rm -Rf ${tmp_folder}${SCCACHE_DIR}/*" "Cleaning Sccache contents after save"
+		echo -n "Cleaning Sccache contents after save ... "
+		rm -Rf "${tmp_folder}${SCCACHE_DIR}/"* > /dev/null 2>&1
+		if [ $? -ne 0 ]; then
+			cd "${current_folder}"
+			displayError "ERROR cleaning Sccache contents in ${tmp_folder}"
+		fi
+		echo "OK"
 		cd "${prev_folder}"
 	fi
 }
@@ -900,11 +1006,17 @@ function saveCache() {
 ##
 function doChroot() {
 	echo "Entering chroot, don't forget to run env-update && . /etc/profile"
-	extra_commands=""
 	if [ "${USE_SCCACHE}" == "YES" ]; then
-		extra_commands+="export SCCACHE_DIR=\"${SCCACHE_DIR}\"; export SCCACHE_CACHE_SIZE=20G; export SCCACHE_IDLE_TIMEOUT=0; su - portage -s /bin/bash -c 'SCCACHE_DIR=\"${SCCACHE_DIR}\" SCCACHE_CACHE_SIZE=20G SCCACHE_IDLE_TIMEOUT=0 /usr/bin/sccache --start-server' 2>/dev/null || true;"
+		# Pass SCCACHE_DIR via env to avoid shell metacharacter injection from the config value
+		chroot "${tmp_folder}" /usr/bin/env \
+			"SCCACHE_DIR=${SCCACHE_DIR}" \
+			SCCACHE_CACHE_SIZE=20G \
+			SCCACHE_IDLE_TIMEOUT=0 \
+			/bin/bash -c \
+			'su - portage -s /bin/bash -c "SCCACHE_DIR=\"$SCCACHE_DIR\" SCCACHE_CACHE_SIZE=20G SCCACHE_IDLE_TIMEOUT=0 /usr/bin/sccache --start-server" 2>/dev/null || true; exec /bin/bash -i'
+	else
+		chroot "${tmp_folder}" /bin/bash -i
 	fi
-	chroot "${tmp_folder}" "/bin/bash" -c "${extra_commands} exec /bin/bash -i"
 }
 
 ##
@@ -946,12 +1058,14 @@ function doList() {
 # @brief Creates a lockfile to prevent concurrent operations.
 ##
 function doLock() {
-	if [ -f "${lockfile}" ]; then
+	echo -n "Setting lockfile ... "
+	if ! (set -o noclobber; : > "${lockfile}") 2>/dev/null; then
+		echo ""
 		echo "Another instance is running using file ${lockfile}"
 		echo "If this is an error manually delete ${lockfile} file"
 		exit 1
 	fi
-	handleCommand "touch ${lockfile}" "Setting lockfile"
+	echo "OK"
 }
 
 ##
@@ -1044,6 +1158,15 @@ function doExport() {
 ##
 function doDelete() {
 	setAndCheckFile
+	local reply=""
+	while [[ ! $reply =~ ^[YyNn]$ ]]; do
+		read -p "Are you sure you want to delete ${tarball}? [Y/N]: " -r
+		reply=$REPLY
+	done
+	if [[ $reply =~ ^[Nn]$ ]]; then
+		echo "No action was done"
+		exit 0
+	fi
 	doLock
 	handleCommand "rm -f ${tarball_filename_fullpath}" "Deleting file ${tarball}"
 	doUnlock
@@ -1208,7 +1331,7 @@ function doDownload() {
 
 	checkDownloadParameters
 	createTMPFolder
-	handleCommand "curl -o ${tmp_folder}/${stage_info_file} ${stage_base_url}/${stage_info_file}" "Downloading stage information"
+	handleCommand "curl --fail -o ${tmp_folder}/${stage_info_file} ${stage_base_url}/${stage_info_file}" "Downloading stage information"
 	if [ ! -s "${tmp_folder}/${stage_info_file}" ]; then
 		echo "Failed to download or empty stage info file: ${stage_info_file}"
 		deleteTMPFolder
@@ -1220,10 +1343,55 @@ function doDownload() {
 		deleteTMPFolder
 		exit 1
 	fi
-	handleCommand "curl -o ${tmp_folder}/`basename ${stage_file}` ${stage_base_url}/${stage_file}" "Downloading `basename ${stage_file}`"
-	handleCommand "mv '${tmp_folder}/`basename ${stage_file}`' '${TARBALL_FOLDER}/`basename ${stage_file}`'" "Moving stage data from temporary folder"
+	# Validate the stage file path to prevent injection from a compromised server response
+	if [[ ! "${stage_file}" =~ ^[a-zA-Z0-9/_.-]+\.tar\.xz$ ]]; then
+		echo "Stage file path from info file contains unexpected characters: ${stage_file}"
+		deleteTMPFolder
+		exit 1
+	fi
+	local stage_basename
+	stage_basename="$(basename "${stage_file}")"
+	handleCommand "curl --fail -o ${tmp_folder}/${stage_basename} ${stage_base_url}/${stage_file}" "Downloading ${stage_basename}"
+	# Best-effort integrity verification via DIGESTS file
+	echo -n "Downloading integrity data for ${stage_basename} ... "
+	if curl --fail --silent -o "${tmp_folder}/${stage_basename}.DIGESTS" \
+	        "${stage_base_url}/${stage_file}.DIGESTS" 2>/dev/null; then
+		echo "OK"
+		echo -n "Verifying integrity of ${stage_basename} ... "
+		# Match SHA512 (128 hex chars) or SHA256 (64 hex chars) line for the tarball
+		local hash_line
+		hash_line="$(grep -E "^[0-9a-fA-F]{128}[[:space:]]+${stage_basename}$" \
+		    "${tmp_folder}/${stage_basename}.DIGESTS" 2>/dev/null | head -1)"
+		if [ -z "${hash_line}" ]; then
+			hash_line="$(grep -E "^[0-9a-fA-F]{64}[[:space:]]+${stage_basename}$" \
+			    "${tmp_folder}/${stage_basename}.DIGESTS" 2>/dev/null | head -1)"
+		fi
+		if [ -n "${hash_line}" ]; then
+			local hash_algo
+			if [[ "${hash_line}" =~ ^[0-9a-fA-F]{128}[[:space:]] ]]; then
+				hash_algo="sha512sum"
+			else
+				hash_algo="sha256sum"
+			fi
+			if ( cd "${tmp_folder}" && echo "${hash_line}" | ${hash_algo} -c --status 2>/dev/null ); then
+				echo "OK"
+			else
+				echo "CHECKSUM MISMATCH"
+				rm -f "${tmp_folder}/${stage_basename}" "${tmp_folder}/${stage_basename}.DIGESTS"
+				deleteTMPFolder
+				echo "Integrity check failed for ${stage_basename} - aborting"
+				exit 1
+			fi
+		else
+			echo "SKIPPED (could not extract hash from DIGESTS file)"
+		fi
+		rm -f "${tmp_folder}/${stage_basename}.DIGESTS"
+	else
+		echo "SKIPPED (DIGESTS file not available on this mirror)"
+	fi
+	handleCommand "mv '${tmp_folder}/${stage_basename}' '${TARBALL_FOLDER}/${stage_basename}'" "Moving stage data from temporary folder"
 	deleteTMPFolder
-	echo "`basename ${stage_file}` downloaded to ${TARBALL_FOLDER}"
+	echo "${stage_basename} downloaded to ${TARBALL_FOLDER}"
 }
 
 ##

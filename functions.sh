@@ -1,10 +1,6 @@
-#! /bin/bash
-
-# Version 1.6.0
-
 function displayError() {
-	echo $1
-	exit
+	echo "$1"
+	exit 1
 }
 
 function handleCommand() {
@@ -40,54 +36,13 @@ function loadConfig() {
 		source "${workdir}/${self}.conf"
 	elif [ -f "/etc/conf.d/${self}.conf" ]; then
 		source "/etc/conf.d/${self}.conf"
-	else	list_contains "${DISABLE_CCACHE}" "${CATEGORY}/${PN}" && force_disable_ccache
+	else
 		echo "Configuration file ${self}.conf not found neither in current directory neither in /etc/conf.d!"
 		exit 1
 	fi
 }
 
 function list_contains() { [[ "$1" =~ (^|[[:space:]])"$2"($|[[:space:]]) ]]; }
-
-function force_binutils_vars() {
-    ADDR2LINE="addr2line"
-    AS="as"
-    AR="ar"
-    NM="nm"
-    OBJCOPY="objcopy"
-    OBJDUMP="objdump"
-    RANLIB="ranlib"
-    READELF="readelf"
-    STRINGS="strings"
-    STRIP="strip"
-}
-
-function force_gcc_vars() {
-    OCC="gcc"
-    OCXX="g++"
-	CC="gcc"
-	CXX="g++"
-	CPP="cpp"
-    CFLAGS="${COMPILER_OPTIMIZATION_BASE} ${COMPILER_OPTIMIZATION_CPU} ${COMPILER_OPTIMIZATION_GCC}"
-    CXXFLAGS="${CFLAGS}"
-    LDFLAGS="${LINKER_OPTIMIZATION_BASE} ${LINKER_OPTIMIZATION_BFD}"
-    force_binutils_vars
-}
-
-function force_pic_vars() {
-    CFLAGS="${CFLAGS} -fPIC"
-    CXXFLAGS="${CXXFLAGS} -fPIC"
-}
-
-function force_lto_vars() {
-    CFLAGS="${CFLAGS} ${COMPILER_OPTIMIZATION_LTO}"
-    CXXFLAGS="${CXXFLAGS} ${COMPILER_OPTIMIZATION_LTO}"
-    LDFLAGS="${LDFLAGS} ${COMPILER_OPTIMIZATION_LTO}"
-    RUSTFLAGS="${RUSTFLAGS} -Clinker-plugin-lto"
-}
-
-function force_ld_undefined_version {
-	LDFLAGS="${LINKER_OPTIMIZATION_BASE} -Wl,--undefined-version" 
-}
 
 # Useful variables
 workdir="${0%/*}"
