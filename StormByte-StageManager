@@ -481,6 +481,10 @@ function checkVars() {
 		echo "Repos folder ${REPOS_DIR} does NOT exist"
 		errors=1
 	fi
+	if [ "${USE_GENTOO_PATCHES_BIND}" != "NO" ] && [ "${USE_GENTOO_PATCHES_BIND}" != "YES" ]; then
+		echo "Gentoo patches bind variable is not set to either YES or NO"
+		errors=1
+	fi
 	if [ -z "${BTRFS_CHECKSUM}" ]; then
 		BTRFS_CHECKSUM="crc32c"
 		elif [ "${BTRFS_CHECKSUM}" != "crc32c" ] && [ "${BTRFS_CHECKSUM}" != "xxhash" ] && [ "${BTRFS_CHECKSUM}" != "sha256" ] && [ "${BTRFS_CHECKSUM}" != "blake2" ]; then
@@ -819,6 +823,21 @@ function mountRepos() {
 }
 
 ##
+# @brief Mounts the Gentoo patches directory in the chroot environment.
+# If the host path does not exist, a warning is printed and the bind is skipped.
+##
+function mountGentooPatches() {
+	if [ "${USE_GENTOO_PATCHES_BIND}" == "YES" ]; then
+		if [ ! -d "/etc/portage/patches" ]; then
+			echo "WARNING: /etc/portage/patches does not exist on host, skipping gentoo patches bind mount"
+		else
+			mkdir -p "${tmp_folder}/etc/portage/patches"
+			handleCommand "mount --bind /etc/portage/patches ${tmp_folder}/etc/portage/patches" "Mounting Gentoo patches storage"
+		fi
+	fi
+}
+
+##
 # @brief Prepares the cache directory in the chroot environment.
 ##
 function prepareCache() {
@@ -894,6 +913,16 @@ function unmountRepos() {
 	cd "${current_folder}"
 	if [ "${USE_REPOS_BIND}" == "YES" ]; then
 		handleCommand "umount ${tmp_folder}${REPOS_DIR}" "Unmounting repos storage"
+	fi
+}
+
+##
+# @brief Unmounts the Gentoo patches directory in the chroot environment.
+##
+function unmountGentooPatches() {
+	cd "${current_folder}"
+	if [ "${USE_GENTOO_PATCHES_BIND}" == "YES" ] && [ -d "${tmp_folder}/etc/portage/patches" ] && mountpoint -q "${tmp_folder}/etc/portage/patches"; then
+		handleCommand "umount ${tmp_folder}/etc/portage/patches" "Unmounting Gentoo patches storage"
 	fi
 }
 
@@ -1125,12 +1154,14 @@ function doUse() {
 	mountPKG
 	mountDistfiles
 	mountRepos
+	mountGentooPatches
 	prepareCache
 	unpackCache
 	mountSystem
 	doChroot
 	unmountSystem
 	unprepareCache
+	unmountGentooPatches
 	unmountRepos
 	unmountDistfiles
 	unmountPKG
@@ -1234,12 +1265,14 @@ function doRebase() {
 	mountPKG
 	mountDistfiles
 	mountRepos
+	mountGentooPatches
 	prepareCache
 	unpackCache
 	mountSystem
 	doChroot
 	unmountSystem
 	unprepareCache
+	unmountGentooPatches
 	unmountRepos
 	unmountDistfiles
 	unmountPKG
