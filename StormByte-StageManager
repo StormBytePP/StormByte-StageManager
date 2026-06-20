@@ -468,6 +468,19 @@ function checkVars() {
 		echo "Distfiles folder ${DISTFILES_DIR} does NOT exist"
 		errors=1
 	fi
+	if [ "${USE_REPOS_BIND}" != "NO" ] && [ "${USE_REPOS_BIND}" != "YES" ]; then
+		echo "Repos bind variable is not set to either YES or NO"
+		errors=1
+	fi
+	if [ -z "${REPOS_DIR}" ]; then
+		echo "Repos folder variable is empty or undefined!"
+		errors=1
+	elif ! validateSafePath "REPOS_DIR" "${REPOS_DIR}"; then
+		errors=1
+	elif [ ! -d "${REPOS_DIR}" ]; then
+		echo "Repos folder ${REPOS_DIR} does NOT exist"
+		errors=1
+	fi
 	if [ -z "${BTRFS_CHECKSUM}" ]; then
 		BTRFS_CHECKSUM="crc32c"
 		elif [ "${BTRFS_CHECKSUM}" != "crc32c" ] && [ "${BTRFS_CHECKSUM}" != "xxhash" ] && [ "${BTRFS_CHECKSUM}" != "sha256" ] && [ "${BTRFS_CHECKSUM}" != "blake2" ]; then
@@ -794,6 +807,18 @@ function mountDistfiles() {
 }
 
 ##
+# @brief Mounts the repos directory in the chroot environment.
+##
+function mountRepos() {
+	mkdir -p "${tmp_folder}${REPOS_DIR}"
+	touch "${tmp_folder}${REPOS_DIR}/.keep"
+
+	if [ "${USE_REPOS_BIND}" == "YES" ]; then
+		handleCommand "mount --bind ${REPOS_DIR} ${tmp_folder}${REPOS_DIR}" "Mounting repos storage"
+	fi
+}
+
+##
 # @brief Prepares the cache directory in the chroot environment.
 ##
 function prepareCache() {
@@ -859,6 +884,16 @@ function unmountDistfiles() {
 	cd "${current_folder}"
 	if [ "${USE_DISTFILES_BIND}" == "YES" ]; then
 		handleCommand "umount ${tmp_folder}${DISTFILES_DIR}" "Unmounting distfiles storage"
+	fi
+}
+
+##
+# @brief Unmounts the repos directory in the chroot environment.
+##
+function unmountRepos() {
+	cd "${current_folder}"
+	if [ "${USE_REPOS_BIND}" == "YES" ]; then
+		handleCommand "umount ${tmp_folder}${REPOS_DIR}" "Unmounting repos storage"
 	fi
 }
 
@@ -1089,12 +1124,14 @@ function doUse() {
 	extractArchive
 	mountPKG
 	mountDistfiles
+	mountRepos
 	prepareCache
 	unpackCache
 	mountSystem
 	doChroot
 	unmountSystem
 	unprepareCache
+	unmountRepos
 	unmountDistfiles
 	unmountPKG
 	cleanStage
@@ -1196,12 +1233,14 @@ function doRebase() {
 	extractArchive "${TARBALL_FOLDER}/${parameters[2]}"
 	mountPKG
 	mountDistfiles
+	mountRepos
 	prepareCache
 	unpackCache
 	mountSystem
 	doChroot
 	unmountSystem
 	unprepareCache
+	unmountRepos
 	unmountDistfiles
 	unmountPKG
 	cleanStage
