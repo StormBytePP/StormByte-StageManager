@@ -1,0 +1,166 @@
+# Bash completion for StormByte-StageManager
+# Install to: /usr/share/bash-completion/completions/StormByte-StageManager
+
+##
+# @brief Reads a variable value from the StormByte-StageManager config file.
+#
+# @param $1 The variable name to look up (e.g., TARBALL_FOLDER).
+##
+_sbsm_get_config_value() {
+	local key="$1"
+	local config_file=""
+
+	# Search config in the same locations the script itself does
+	local script_path
+	script_path="$(command -v StormByte-StageManager 2>/dev/null)"
+	if [[ -n "$script_path" ]]; then
+		local script_dir="${script_path%/*}"
+		if [[ -f "${script_dir}/StormByte-StageManager.conf" ]]; then
+			config_file="${script_dir}/StormByte-StageManager.conf"
+		fi
+	fi
+	if [[ -z "$config_file" && -f "/etc/conf.d/StormByte-StageManager.conf" ]]; then
+		config_file="/etc/conf.d/StormByte-StageManager.conf"
+	fi
+
+	if [[ -z "$config_file" ]]; then
+		return
+	fi
+
+	# Extract the value, stripping surrounding quotes if present
+	local raw
+	raw=$(grep -E "^[[:space:]]*${key}=" "$config_file" 2>/dev/null | head -1 | cut -d'=' -f2-)
+	# Strip leading/trailing whitespace and surrounding quotes
+	raw="${raw#"${raw%%[! ]*}"}"
+	raw="${raw%"${raw##*[! ]}"}"
+	raw="${raw#[\"\']}"
+	raw="${raw%[\"\']}"
+	printf '%s' "$raw"
+}
+
+##
+# @brief Returns the count of available tarball files in TARBALL_FOLDER.
+##
+_sbsm_get_index_count() {
+	local tarball_folder
+	tarball_folder="$(_sbsm_get_config_value TARBALL_FOLDER)"
+	if [[ -z "$tarball_folder" || ! -d "$tarball_folder" ]]; then
+		return
+	fi
+	find "$tarball_folder" -maxdepth 1 -type f \
+		-iregex '.*\.\(tar\.gz\|tgz\|tar\.bz2\|tbz2\|tar\.xz\|txz\|tar\.zstd\|tzd\)$' \
+		! -name 'ccache.tbz2' ! -name 'sccache.tbz2' \
+		2>/dev/null | wc -l
+}
+
+##
+# @brief Generates a space-separated list of valid numeric indices ("0 1 2 ...").
+##
+_sbsm_index_words() {
+	local count
+	count="$(_sbsm_get_index_count)"
+	if [[ -z "$count" || "$count" -eq 0 ]]; then
+		return
+	fi
+	local i words=""
+	for (( i = 0; i < count; i++ )); do
+		words+="$i "
+	done
+	printf '%s' "$words"
+}
+
+##
+# @brief Main completion function for StormByte-StageManager.
+##
+_StormByte_StageManager() {
+	local cur prev words cword
+	_init_completion || return
+
+	local commands="list use rebase convert export delete rename download help notes"
+	local compression_formats="gzip bzip2 xz zstd"
+	local arches="i486 i686 amd64 x32"
+	local help_topics="list use rebase convert export delete rename download notes compression"
+	local notes_subcommands="edit delete"
+
+	# Profiles per architecture
+	local profiles_i486="default"
+	local profiles_i686="default hardened systemd uclibc-hardened uclibc-vanilla"
+	local profiles_amd64="default hardened nomultilib systemd hardened+nomultilib hardened-selinux hardened-selinux+nomultilib uclibc-hardened uclibc-vanilla"
+	local profiles_x32="default"
+
+	# The main command is always words[1]
+	local cmd="${words[1]}"
+
+	case "$cword" in
+		1)
+			# Complete the main command
+			COMPREPLY=( $(compgen -W "$commands" -- "$cur") )
+			;;
+		2)
+			case "$cmd" in
+				use|rebase|convert|delete|rename|notes|export)
+					local idx_words
+					idx_words="$(_sbsm_index_words)"
+					if [[ -n "$idx_words" ]]; then
+						COMPREPLY=( $(compgen -W "$idx_words" -- "$cur") )
+					fi
+					;;
+				download)
+					COMPREPLY=( $(compgen -W "$arches" -- "$cur") )
+					;;
+				help)
+					COMPREPLY=( $(compgen -W "$help_topics" -- "$cur") )
+					;;
+			esac
+			;;
+		3)
+			case "$cmd" in
+				rebase|rename)
+					# New filename: suggest existing tarball names from the folder as a starting point
+					local tarball_folder
+					tarball_folder="$(_sbsm_get_config_value TARBALL_FOLDER)"
+					if [[ -n "$tarball_folder" && -d "$tarball_folder" ]]; then
+						local -a tarballs
+						mapfile -t tarballs < <(
+							find "$tarball_folder" -maxdepth 1 -type f \
+								-iregex '.*\.\(tar\.gz\|tgz\|tar\.bz2\|tbz2\|tar\.xz\|txz\|tar\.zstd\|tzd\)$' \
+								! -name 'ccache.tbz2' ! -name 'sccache.tbz2' \
+								-printf '%f\n' 2>/dev/null
+						)
+						COMPREPLY=( $(compgen -W "${tarballs[*]}" -- "$cur") )
+					fi
+					;;
+				convert)
+					COMPREPLY=( $(compgen -W "$compression_formats" -- "$cur") )
+					;;
+				export)
+					# Destination folder
+					COMPREPLY=( $(compgen -d -- "$cur") )
+					compopt -o nospace
+					;;
+				download)
+					# Profile for the selected arch
+					local arch="${words[2]}"
+					local profiles_var="profiles_${arch//-/_}"
+					# indirect reference to the right profiles variable
+					COMPREPLY=( $(compgen -W "${!profiles_var}" -- "$cur") )
+					;;
+				notes)
+					COMPREPLY=( $(compgen -W "$notes_subcommands" -- "$cur") )
+					;;
+			esac
+			;;
+		4)
+			case "$cmd" in
+				export)
+					# Compression format for export
+					COMPREPLY=( $(compgen -W "$compression_formats" -- "$cur") )
+					;;
+			esac
+			;;
+	esac
+
+	return 0
+}
+
+complete -F _StormByte_StageManager StormByte-StageManager
