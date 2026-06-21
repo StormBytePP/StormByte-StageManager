@@ -795,25 +795,26 @@ function mountFOLDER() {
 # @brief Mounts a ZRAM-based temporary storage.
 ##
 mountZRAM() {
-    mkdir -p "${tmp_folder}"
-    zram_device_full=$(zramctl -f)
-    zram_device=$(basename "${zram_device_full}")
+	mkdir -p "${tmp_folder}"
+	zram_device_full=$(zramctl -f)
+	zram_device=$(basename "${zram_device_full}")
 
-    if [ -z "${zram_device}" ]; then
-        displayError "There are no ZRAM devices available"
-        return 1
-    fi
+	if [ -z "${zram_device}" ]; then
+		displayError "There are no ZRAM devices available"
+		return 1
+	fi
 
-    handleCommand "echo 1 > /sys/block/${zram_device}/reset" "Resetting ZRAM"
-    handleCommand "echo '${STORAGE_SIZE}' > /sys/block/${zram_device}/disksize" "Setting ZRAM size"
+	handleCommand "echo 1 > /sys/block/${zram_device}/reset" "Resetting ZRAM"
 
-    # Only apply compression if the variable has a value
-    if [ -n "${STORAGE_SYSTEM_ZRAM_COMPRESSION_ALGO}" ]; then
-        handleCommand "echo '${STORAGE_SYSTEM_ZRAM_COMPRESSION_ALGO}' > /sys/block/${zram_device}/comp_algorithm" "Setting compression to ${STORAGE_SYSTEM_ZRAM_COMPRESSION_ALGO}"
-    fi
+	# Compresión con printf (más robusto que echo)
+	if [ -n "${STORAGE_SYSTEM_ZRAM_COMPRESSION_ALGO}" ]; then
+		handleCommand "printf '%s\n' '${STORAGE_SYSTEM_ZRAM_COMPRESSION_ALGO}' > /sys/block/${zram_device}/comp_algorithm" "Setting compression to ${STORAGE_SYSTEM_ZRAM_COMPRESSION_ALGO}"
+	fi
 
-    handleCommand "mkfs.ext2 -F -q ${zram_device_full}" "Creating ext2 on ZRAM"
-    handleCommand "mount -t ext2 -o noatime,nodiratime,discard ${zram_device_full} '${tmp_folder}'" "Mounting ext2 on ZRAM"
+	handleCommand "echo '${STORAGE_SIZE}' > /sys/block/${zram_device}/disksize" "Setting ZRAM size"
+
+	handleCommand "mkfs.ext2 -F -q ${zram_device_full}" "Creating ext2 on ZRAM"
+	handleCommand "mount -t ext2 -o noatime,nodiratime,discard ${zram_device_full} '${tmp_folder}'" "Mounting ext2 on ZRAM"
 }
 
 ##
