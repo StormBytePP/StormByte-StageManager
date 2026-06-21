@@ -491,6 +491,33 @@ function checkVars() {
 			echo "BTRFS_CHECKSUM value ${BTRFS_CHECKSUM} is invalid, valid values are: crc32c, xxhash, sha256 and blake2"
 			errors=1
 	fi
+	if [ -n "${EXTRA_BIND_MOUNT}" ]; then
+		local protected_paths=("/" "/dev" "/sys" "/proc" "/run" "/tmp" "/etc" "/bin" "/sbin" "/lib" "/lib64" "/usr" "/boot" "/root")
+		local saved_ifs="${IFS}"
+		IFS=';' read -ra extra_mounts <<< "${EXTRA_BIND_MOUNT}"
+		IFS="${saved_ifs}"
+		for mount_path in "${extra_mounts[@]}"; do
+			if [ -z "${mount_path}" ]; then
+				continue
+			fi
+			if ! validateSafePath "EXTRA_BIND_MOUNT entry" "${mount_path}"; then
+				errors=1
+			else
+				local protected
+				for protected in "${protected_paths[@]}"; do
+					if [ "${mount_path}" = "${protected}" ]; then
+						echo "EXTRA_BIND_MOUNT: ${mount_path} is a protected path and cannot be bind mounted into the chroot"
+						errors=1
+						break
+					fi
+				done
+				if [ ! -d "${mount_path}" ]; then
+					echo "EXTRA_BIND_MOUNT: directory ${mount_path} does not exist on host"
+					errors=1
+				fi
+			fi
+		done
+	fi
 	if [ "${errors}" -eq 1 ]; then
 		exit 1
 	fi
@@ -927,6 +954,46 @@ function unmountGentooPatches() {
 }
 
 ##
+# @brief Mounts extra bind mount paths from EXTRA_BIND_MOUNT into the chroot environment.
+##
+function mountExtraBindMounts() {
+	if [ -z "${EXTRA_BIND_MOUNT}" ]; then
+		return
+	fi
+	local saved_ifs="${IFS}"
+	IFS=';' read -ra extra_mounts <<< "${EXTRA_BIND_MOUNT}"
+	IFS="${saved_ifs}"
+	for mount_path in "${extra_mounts[@]}"; do
+		if [ -z "${mount_path}" ]; then
+			continue
+		fi
+		mkdir -p "${tmp_folder}${mount_path}"
+		handleCommand "mount --bind ${mount_path} ${tmp_folder}${mount_path}" "Mounting extra bind mount ${mount_path}"
+	done
+}
+
+##
+# @brief Unmounts extra bind mount paths from EXTRA_BIND_MOUNT in the chroot environment.
+##
+function unmountExtraBindMounts() {
+	cd "${current_folder}"
+	if [ -z "${EXTRA_BIND_MOUNT}" ]; then
+		return
+	fi
+	local saved_ifs="${IFS}"
+	IFS=';' read -ra extra_mounts <<< "${EXTRA_BIND_MOUNT}"
+	IFS="${saved_ifs}"
+	for mount_path in "${extra_mounts[@]}"; do
+		if [ -z "${mount_path}" ]; then
+			continue
+		fi
+		if mountpoint -q "${tmp_folder}${mount_path}" 2>/dev/null; then
+			handleCommand "umount ${tmp_folder}${mount_path}" "Unmounting extra bind mount ${mount_path}"
+		fi
+	done
+}
+
+##
 # @brief Unprepare the cache directory in the chroot environment.
 ##
 function unprepareCache() {
@@ -1155,12 +1222,14 @@ function doUse() {
 	mountDistfiles
 	mountRepos
 	mountGentooPatches
+	mountExtraBindMounts
 	prepareCache
 	unpackCache
 	mountSystem
 	doChroot
 	unmountSystem
 	unprepareCache
+	unmountExtraBindMounts
 	unmountGentooPatches
 	unmountRepos
 	unmountDistfiles
@@ -1266,12 +1335,14 @@ function doRebase() {
 	mountDistfiles
 	mountRepos
 	mountGentooPatches
+	mountExtraBindMounts
 	prepareCache
 	unpackCache
 	mountSystem
 	doChroot
 	unmountSystem
 	unprepareCache
+	unmountExtraBindMounts
 	unmountGentooPatches
 	unmountRepos
 	unmountDistfiles
