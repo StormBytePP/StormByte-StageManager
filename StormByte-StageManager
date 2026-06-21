@@ -131,9 +131,11 @@ gentoo_base_url="https://repo.ifca.es/gentoo-distfiles/releases"
 # Prints the version and author information.
 ##
 function header() {
-	echo "StormByte Gentoo Stage Manager Version ${version}"
-	echo "Author: David C. Manuelda a.k.a StormByte <StormByte@gmail.com>"
-	echo ""
+	printf "\n"
+	printf "  ${_CLR_BOLD_CYAN}StormByte Gentoo Stage Manager${_CLR_RESET}  ${_CLR_BOLD_WHITE}v${version}${_CLR_RESET}\n"
+	printf "  ${_CLR_DIM}David C. Manuelda a.k.a StormByte <StormByte@gmail.com>${_CLR_RESET}\n"
+	printf "  ${_CLR_BOLD_CYAN}──────────────────────────────────────────────────${_CLR_RESET}\n"
+	printf "\n"
 }
 
 ##
@@ -142,12 +144,17 @@ function header() {
 # Provides a summary of available commands and their usage.
 ##
 function usage() {
-	echo "This script will handle a gentoo chroot from a compressed tarball, it will mount all the needed points, chroot to it, clean, and make changes to compressed file again"
-	echo "Configuration is located in /etc/conf.d/StormByte-StageManager.conf"
-	echo "Usage is $self <command> <arguments>"
-	echo "Available commands are: ${available_commands[*]}"
-	echo "For more detailed help, use $self help <command> or $self help compression for more information about compression"
-	echo "See configuration file $config_file for more tweaking options"
+	printf "  ${_CLR_BOLD_WHITE}Description:${_CLR_RESET}\n"
+	printf "    Manages Gentoo chroot environments from compressed tarballs.\n"
+	printf "    Configuration: ${_CLR_CYAN}/etc/conf.d/StormByte-StageManager.conf${_CLR_RESET}\n\n"
+	printf "  ${_CLR_BOLD_WHITE}Usage:${_CLR_RESET}  ${_CLR_BOLD_GREEN}%s${_CLR_RESET} ${_CLR_YELLOW}<command>${_CLR_RESET} ${_CLR_DIM}[arguments]${_CLR_RESET}\n\n" "$self"
+	printf "  ${_CLR_BOLD_WHITE}Commands:${_CLR_RESET}  "
+	for cmd in "${available_commands[@]}"; do
+		printf "${_CLR_BOLD_GREEN}%s${_CLR_RESET}  " "$cmd"
+	done
+	printf "\n\n"
+	printf "    Use ${_CLR_BOLD_GREEN}%s help <command>${_CLR_RESET} for detailed help.\n" "$self"
+	printf "    Use ${_CLR_BOLD_GREEN}%s help compression${_CLR_RESET} for compression format details.\n\n" "$self"
 }
 
 ##
@@ -156,9 +163,10 @@ function usage() {
 # Explains how to use the `list` command to view tarball files.
 ##
 function helpList() {
-	echo "Usage: $self list"
-	echo "This command will list the files in the folder specified which is ${TARBALL_FOLDER}, showing index number, size and filename."
-	echo "Use that index name to refer to the file in other commands"
+	printf "  ${_CLR_BOLD_WHITE}Usage:${_CLR_RESET}  ${_CLR_BOLD_GREEN}%s list${_CLR_RESET}\n\n" "$self"
+	printf "    Lists files in ${_CLR_CYAN}%s${_CLR_RESET},\n" "${TARBALL_FOLDER}"
+	printf "    showing index number, size, and filename.\n"
+	printf "    Use the index to refer to files in other commands.\n\n"
 }
 
 ##
@@ -167,8 +175,9 @@ function helpList() {
 # Explains how to use the `use` command to configure and enter a chroot.
 ##
 function helpUse() {
-	echo "Usage: $self use <index>"
-	echo "This command will use file specified as index (see list command) for configuring and entering a chroot"
+	printf "  ${_CLR_BOLD_WHITE}Usage:${_CLR_RESET}  ${_CLR_BOLD_GREEN}%s use${_CLR_RESET} ${_CLR_YELLOW}<index>${_CLR_RESET}\n\n" "$self"
+	printf "    Uses the file at the given index (see ${_CLR_BOLD_GREEN}list${_CLR_RESET}) to configure\n"
+	printf "    and enter a chroot environment.\n\n"
 }
 
 ##
@@ -177,9 +186,10 @@ function helpUse() {
 # Explains how to use the `rebase` command to copy and rebase a tarball.
 ##
 function helpRebase() {
-	echo "Usage: $self rebase <index> <new_file_name>"
-	echo "This command is similar to use command, but before entering chroot, it copies file specified from index (see list command) to destination folder set in $config under new_file_name."
-	echo "Compression method is determined by the extension, see $self help compression for more details"
+	printf "  ${_CLR_BOLD_WHITE}Usage:${_CLR_RESET}  ${_CLR_BOLD_GREEN}%s rebase${_CLR_RESET} ${_CLR_YELLOW}<index> <new_file_name>${_CLR_RESET}\n\n" "$self"
+	printf "    Similar to ${_CLR_BOLD_GREEN}use${_CLR_RESET}, but copies the tarball to a new file before entering chroot.\n"
+	printf "    Compression is determined by the file extension.\n"
+	printf "    See ${_CLR_BOLD_GREEN}%s help compression${_CLR_RESET} for details.\n\n" "$self"
 }
 
 ##
@@ -188,9 +198,10 @@ function helpRebase() {
 # Explains how to use the `convert` command to recompress a tarball.
 ##
 function helpConvert() {
-	echo "Usage: $self convert <index> <compression_format>"
-	echo "This command will copy file specified by index and recompress to selected compression_format, an error will be raised if target filename determined by compression already exists"
-	echo "For more info about compression use $self help compression"
+	printf "  ${_CLR_BOLD_WHITE}Usage:${_CLR_RESET}  ${_CLR_BOLD_GREEN}%s convert${_CLR_RESET} ${_CLR_YELLOW}<index> <compression_format>${_CLR_RESET}\n\n" "$self"
+	printf "    Recompresses the tarball at the given index to the specified format.\n"
+	printf "    An error is raised if the target filename already exists.\n"
+	printf "    See ${_CLR_BOLD_GREEN}%s help compression${_CLR_RESET} for available formats.\n\n" "$self"
 }
 
 ##
@@ -199,8 +210,9 @@ function helpConvert() {
 # Explains how to use the `export` command to export a tarball to a destination folder.
 ##
 function helpExport() {
-	echo "Usage: $self export <index> <destination_folder> <compression_format>"
-	echo "This command is similar to convert, but it allows to specify a destination folder for the new file. This folder has to exist or an error will be raised"
+	printf "  ${_CLR_BOLD_WHITE}Usage:${_CLR_RESET}  ${_CLR_BOLD_GREEN}%s export${_CLR_RESET} ${_CLR_YELLOW}<index> <destination_folder> <compression_format>${_CLR_RESET}\n\n" "$self"
+	printf "    Similar to ${_CLR_BOLD_GREEN}convert${_CLR_RESET}, but exports to a specified destination folder.\n"
+	printf "    The destination folder must already exist.\n\n"
 }
 
 ##
@@ -209,8 +221,8 @@ function helpExport() {
 # Explains how to use the `delete` command to remove a tarball.
 ##
 function helpDelete() {
-	echo "Usage: $self delete <index>"
-	echo "This command will delete a file specified by its index (see list command)"
+	printf "  ${_CLR_BOLD_WHITE}Usage:${_CLR_RESET}  ${_CLR_BOLD_GREEN}%s delete${_CLR_RESET} ${_CLR_YELLOW}<index>${_CLR_RESET}\n\n" "$self"
+	printf "    Permanently deletes the tarball file at the given index.\n\n"
 }
 
 ##
@@ -219,8 +231,8 @@ function helpDelete() {
 # Explains how to use the `rename` command to rename a tarball.
 ##
 function helpRename() {
-	echo "Usage: $self rename <index> <new_file_name>"
-	echo "This command allows renaming a file specified by index (see list command) to a new_file_name under the same folder."
+	printf "  ${_CLR_BOLD_WHITE}Usage:${_CLR_RESET}  ${_CLR_BOLD_GREEN}%s rename${_CLR_RESET} ${_CLR_YELLOW}<index> <new_file_name>${_CLR_RESET}\n\n" "$self"
+	printf "    Renames the tarball at the given index to a new name in the same folder.\n\n"
 }
 
 ##
@@ -229,9 +241,19 @@ function helpRename() {
 # Explains available compression formats and extensions.
 ##
 function helpCompression() {
-	echo "This utility uses compression for keeping storage of its files, some times, depending on the command, compression is determined by the file extension or by the name of the compressor algorithm"
-	echo "Available extensions are: ${available_compression_extensions[*]}"
-	echo "Available compression formats are: ${available_compression_formats[*]}"
+	printf "  ${_CLR_BOLD_WHITE}Compression Formats${_CLR_RESET}\n\n"
+	printf "    Compression is determined by file extension or algorithm name,\n"
+	printf "    depending on the command used.\n\n"
+	printf "  ${_CLR_BOLD_WHITE}Extensions:${_CLR_RESET}  "
+	for ext in "${available_compression_extensions[@]}"; do
+		printf "${_CLR_CYAN}%s${_CLR_RESET}  " "$ext"
+	done
+	printf "\n"
+	printf "  ${_CLR_BOLD_WHITE}Algorithms:${_CLR_RESET}  "
+	for fmt in "${available_compression_formats[@]}"; do
+		printf "${_CLR_CYAN}%s${_CLR_RESET}  " "$fmt"
+	done
+	printf "\n\n"
 }
 
 ##
@@ -240,34 +262,19 @@ function helpCompression() {
 # Explains how to use the `download` command to fetch a Gentoo stage tarball.
 ##
 function helpDownload() {
-	echo "Usage: $self download <arch> <profile>"
-	echo "This command will download a stage3 for selected arch and profile. If profile is not specified, a default one will be chosen"
-	echo "Available arches are i486, i686, amd64 and x32"
-	echo "Available profiles depends on selected arch:"
-	echo ""
-	echo "i486:"
-	echo "  * default"
-	echo ""
-	echo "i686:"
-	echo "  * default"
-	echo "  * hardened"
-	echo "  * systemd"
-	echo "  * uclibc-hardened"
-	echo "  * uclibc-vanilla"
-	echo ""
-	echo "amd64:"
-	echo "  * default (multilib)"
-	echo "  * hardened"
-	echo "  * nomultilib"
-	echo "  * systemd"
-	echo "  * hardened+nomultilib"
-	echo "  * hardened-selinux"
-	echo "  * hardened-selinux+nomultilib"
-	echo "  * uclibc-hardened"
-	echo "  * uclibc-vanilla"
-	echo ""
-	echo "x32:"
-	echo "  * default"
+	printf "  ${_CLR_BOLD_WHITE}Usage:${_CLR_RESET}  ${_CLR_BOLD_GREEN}%s download${_CLR_RESET} ${_CLR_YELLOW}<arch> [profile]${_CLR_RESET}\n\n" "$self"
+	printf "    Downloads a Gentoo stage3 for the selected arch and profile.\n"
+	printf "    If profile is not specified, ${_CLR_CYAN}default${_CLR_RESET} will be used.\n\n"
+	printf "  ${_CLR_BOLD_WHITE}i486:${_CLR_RESET}\n"
+	printf "    ${_CLR_CYAN}default${_CLR_RESET}\n\n"
+	printf "  ${_CLR_BOLD_WHITE}i686:${_CLR_RESET}\n"
+	printf "    ${_CLR_CYAN}default${_CLR_RESET}  ${_CLR_CYAN}hardened${_CLR_RESET}  ${_CLR_CYAN}systemd${_CLR_RESET}  ${_CLR_CYAN}uclibc-hardened${_CLR_RESET}  ${_CLR_CYAN}uclibc-vanilla${_CLR_RESET}\n\n"
+	printf "  ${_CLR_BOLD_WHITE}amd64:${_CLR_RESET}\n"
+	printf "    ${_CLR_CYAN}default${_CLR_RESET} ${_CLR_DIM}(multilib)${_CLR_RESET}  ${_CLR_CYAN}hardened${_CLR_RESET}  ${_CLR_CYAN}nomultilib${_CLR_RESET}  ${_CLR_CYAN}systemd${_CLR_RESET}\n"
+	printf "    ${_CLR_CYAN}hardened+nomultilib${_CLR_RESET}  ${_CLR_CYAN}hardened-selinux${_CLR_RESET}  ${_CLR_CYAN}hardened-selinux+nomultilib${_CLR_RESET}\n"
+	printf "    ${_CLR_CYAN}uclibc-hardened${_CLR_RESET}  ${_CLR_CYAN}uclibc-vanilla${_CLR_RESET}\n\n"
+	printf "  ${_CLR_BOLD_WHITE}x32:${_CLR_RESET}\n"
+	printf "    ${_CLR_CYAN}default${_CLR_RESET}\n\n"
 }
 
 ##
@@ -276,10 +283,10 @@ function helpDownload() {
 # Explains how to use the `notes` command to manage notes for tarballs.
 ##
 function helpNotes() {
-	echo "Usage: $self notes <index> <subcommand>"
-	echo "This command will handle notes for a stage tarball index via specified subcommand:"
-	echo "  * edit -> Edits notes for specified stage via config's specified editor"
-	echo "  * delete -> Cleans stage notes"
+	printf "  ${_CLR_BOLD_WHITE}Usage:${_CLR_RESET}  ${_CLR_BOLD_GREEN}%s notes${_CLR_RESET} ${_CLR_YELLOW}<index> <subcommand>${_CLR_RESET}\n\n" "$self"
+	printf "    Manages notes for a stage tarball. Subcommands:\n\n"
+	printf "    ${_CLR_BOLD_GREEN}edit${_CLR_RESET}    Edits notes using the configured editor.\n"
+	printf "    ${_CLR_BOLD_GREEN}delete${_CLR_RESET}  Deletes notes for the stage.\n\n"
 }
 
 ##
@@ -298,13 +305,13 @@ function validateSafePath() {
 	local var_value="$2"
 	# Must be an absolute path
 	if [[ "${var_value}" != /* ]]; then
-		echo "${var_name} must be an absolute path: ${var_value}"
+		echo "${_CLR_RED}  ✗${_CLR_RESET} ${var_name} must be an absolute path: ${var_value}"
 		return 1
 	fi
 	# Whitelist: only alphanumeric characters, /, -, _, and . are allowed.
 	# This prevents shell metacharacters from being injected into commands.
 	if [[ "${var_value}" =~ [^a-zA-Z0-9/_.-] ]]; then
-		echo "${var_name} contains unsafe characters (only alphanumeric, /, -, _, . are allowed): ${var_value}"
+		echo "${_CLR_RED}  ✗${_CLR_RESET} ${var_name} contains unsafe characters (only alphanumeric, /, -, _, . are allowed): ${var_value}"
 		return 1
 	fi
 	# Reject path traversal sequences (..) by checking each component
@@ -314,7 +321,7 @@ function validateSafePath() {
 	local part
 	for part in "${path_parts[@]}"; do
 		if [ "${part}" = ".." ]; then
-			echo "${var_name} contains path traversal sequence (..): ${var_value}"
+			echo "${_CLR_RED}  ✗${_CLR_RESET} ${var_name} contains path traversal sequence (..): ${var_value}"
 			return 1
 		fi
 	done
@@ -330,165 +337,165 @@ function validateSafePath() {
 function checkVars() {
 	local errors=0
 	if [ -z "${STORAGE_SYSTEM}" ] || [ "${STORAGE_SYSTEM}" != "zram" ] && [ "${STORAGE_SYSTEM}" != "tmpfs" ] && [ "${STORAGE_SYSTEM}" != "folder" ]; then
-		echo "STORAGE_SYSTEM variable is not set, is empty or contains an invalid value!"
+		echo "${_CLR_RED}  ✗${_CLR_RESET} STORAGE_SYSTEM variable is not set, is empty or contains an invalid value!"
 		errors=1
 	fi
 	# We only check for STORAGE_SIZE if zram or tmpfs is set to be used
 	if [ "${STORAGE_SYSTEM}" = "zram" ] || [ "${STORAGE_SYSTEM}" = "tmpfs" ]; then
 		local re="^[1-9][0-9]*[MG]$" # For checking storage size (non-zero)
 		if ! [[ "${STORAGE_SIZE}" =~ $re ]]; then
-			echo "STORAGE_SIZE is either empty, zero, or invalid, check if its value is correct!"
+			echo "${_CLR_RED}  ✗${_CLR_RESET} STORAGE_SIZE is either empty, zero, or invalid, check if its value is correct!"
 			errors=1
 		fi
 	fi
 	if [ "${STORAGE_SYSTEM}" = "zram" ]; then
 		if ! [ -z "${STORAGE_SYSTEM_ZRAM_COMPRESSION_LEVEL}" ]; then
 			if [ "${STORAGE_SYSTEM_ZRAM_COMPRESSION_LEVEL}" -lt 0 ] || [ "${STORAGE_SYSTEM_ZRAM_COMPRESSION_LEVEL}" -gt 15 ]; then
-				echo "STORAGE_SYSTEM_ZRAM_COMPRESSION_LEVEL has a value which is less than 0 or greater than 15"
+				echo "${_CLR_RED}  ✗${_CLR_RESET} STORAGE_SYSTEM_ZRAM_COMPRESSION_LEVEL has a value which is less than 0 or greater than 15"
 				errors=1
 			fi
 		fi
 	fi
 
 	if [ -z "${TARBALL_FOLDER}" ]; then
-		echo "TARBALL_FOLDER variable is not set or empty!"
+		echo "${_CLR_RED}  ✗${_CLR_RESET} TARBALL_FOLDER variable is not set or empty!"
 		errors=1
 	elif ! validateSafePath "TARBALL_FOLDER" "${TARBALL_FOLDER}"; then
 		errors=1
 	fi
 	if [ ! -f "${TARBALL_NOTE_EDITOR}" ]; then
-		echo "Editor executable is not found"
+		echo "${_CLR_RED}  ✗${_CLR_RESET} Editor executable is not found"
 		errors=1
 	fi
 	if [ "${DETACH_NOTE_EDITOR}" != "NO" ] && [ "${DETACH_NOTE_EDITOR}" != "YES" ]; then
-		echo "DETACH_NOTE_EDITOR variable only accepts values YES and NO"
+		echo "${_CLR_RED}  ✗${_CLR_RESET} DETACH_NOTE_EDITOR variable only accepts values YES and NO"
 		errors=1
 	fi
 	if ! [[ "${GZIP_COMPRESSION_LEVEL}" =~ ^[1-9]$ ]]; then
-		echo "Gzip compression level is not in a range between 1 and 9!"
+		echo "${_CLR_RED}  ✗${_CLR_RESET} Gzip compression level is not in a range between 1 and 9!"
 		errors=1
 	fi
 	if ! [[ "${BZIP_COMPRESSION_LEVEL}" =~ ^[1-9]$ ]]; then
-		echo "Bzip compression level is not in a range between 1 and 9!"
+		echo "${_CLR_RED}  ✗${_CLR_RESET} Bzip compression level is not in a range between 1 and 9!"
 		errors=1
 	fi
 	if ! [[ "${XZ_COMPRESSION_LEVEL}" =~ ^[1-9]$ ]]; then
-		echo "Xz compression level is not in a range between 1 and 9!"
+		echo "${_CLR_RED}  ✗${_CLR_RESET} Xz compression level is not in a range between 1 and 9!"
 		errors=1
 	fi
 	if ! [[ "${ZSTD_COMPRESSION_LEVEL}" =~ ^[1-9]+$ ]] || ! [ "${ZSTD_COMPRESSION_LEVEL}" -ge 1 -a "${ZSTD_COMPRESSION_LEVEL}" -le 19 ]; then
-		echo "Zstd compression level is not in a range between 1 and 19!"
+		echo "${_CLR_RED}  ✗${_CLR_RESET} Zstd compression level is not in a range between 1 and 19!"
 		errors=1
 	fi
 	if [ "${USE_CCACHE}" != "NO" ] && [ "${USE_CCACHE}" != "YES" ]; then
-		echo "Use ccache variable is not set to either YES or NO"
+		echo "${_CLR_RED}  ✗${_CLR_RESET} Use ccache variable is not set to either YES or NO"
 		errors=1
 	fi
 	if [ "${USE_CCACHE}" != "NO" ]; then
 		if [ "${USE_CCACHE_BIND}" != "NO" ] && [ "${USE_CCACHE_BIND}" != "YES" ]; then
-			echo "Ccache bind variable is not set to either YES or NO"
+			echo "${_CLR_RED}  ✗${_CLR_RESET} Ccache bind variable is not set to either YES or NO"
 			errors=1
 		fi
 		if [ "${USE_CCACHE_FILE}" != "NO" ] && [ "${USE_CCACHE_FILE}" != "YES" ]; then
-			echo "Ccache file variable is not set to either YES or NO"
+			echo "${_CLR_RED}  ✗${_CLR_RESET} Ccache file variable is not set to either YES or NO"
 			errors=1
 		fi
 		if [ "${USE_CCACHE_BIND}" != "YES" ] && [ "${USE_CCACHE_FILE}" != "YES" ]; then
-			echo "If USE_CCACHE is set to YES, either USE_CCACHE_BIND or USE_CCACHE_FILE must be set to YES"
+			echo "${_CLR_RED}  ✗${_CLR_RESET} If USE_CCACHE is set to YES, either USE_CCACHE_BIND or USE_CCACHE_FILE must be set to YES"
 			errors=1
 		elif [ "${USE_CCACHE_FILE}" == "YES" ] && [ "${USE_CCACHE_BIND}" == "YES" ]; then
-			echo "Only one of USE_CCACHE_FILE or USE_CCACHE_BIND can be set to YES"
+			echo "${_CLR_RED}  ✗${_CLR_RESET} Only one of USE_CCACHE_FILE or USE_CCACHE_BIND can be set to YES"
 			errors=1
 		fi
 		if [ -z "${CCACHE_DIR}" ]; then
-			echo "Ccache folder variable is empty or undefined!"
+			echo "${_CLR_RED}  ✗${_CLR_RESET} Ccache folder variable is empty or undefined!"
 			errors=1
 		elif ! validateSafePath "CCACHE_DIR" "${CCACHE_DIR}"; then
 			errors=1
 		fi
 		if [ ! -d "${CCACHE_DIR}" ] && [ "${USE_CCACHE_BIND}" == "YES" ]; then
-			echo "Ccache folder ${CCACHE_DIR} does NOT exist"
+			echo "${_CLR_RED}  ✗${_CLR_RESET} Ccache folder ${CCACHE_DIR} does NOT exist"
 			errors=1
 		fi
 	fi
 	if [ "${USE_SCCACHE}" != "NO" ] && [ "${USE_SCCACHE}" != "YES" ]; then
-		echo "Use sccache variable is not set to either YES or NO"
+		echo "${_CLR_RED}  ✗${_CLR_RESET} Use sccache variable is not set to either YES or NO"
 		errors=1
 	fi
 	if [ "${USE_SCCACHE}" != "NO" ]; then
 		if [ "${USE_SCCACHE_BIND}" != "NO" ] && [ "${USE_SCCACHE_BIND}" != "YES" ]; then
-			echo "Sccache bind variable is not set to either YES or NO"
+			echo "${_CLR_RED}  ✗${_CLR_RESET} Sccache bind variable is not set to either YES or NO"
 			errors=1
 		fi
 		if [ "${USE_SCCACHE_FILE}" != "NO" ] && [ "${USE_SCCACHE_FILE}" != "YES" ]; then
-			echo "Sccache file variable is not set to either YES or NO"
+			echo "${_CLR_RED}  ✗${_CLR_RESET} Sccache file variable is not set to either YES or NO"
 			errors=1
 		fi
 		if [ "${USE_SCCACHE_BIND}" != "YES" ] && [ "${USE_SCCACHE_FILE}" != "YES" ]; then
-			echo "If USE_SCCACHE is set to YES, either USE_SCCACHE_BIND or USE_SCCACHE_FILE must be set to YES"
+			echo "${_CLR_RED}  ✗${_CLR_RESET} If USE_SCCACHE is set to YES, either USE_SCCACHE_BIND or USE_SCCACHE_FILE must be set to YES"
 			errors=1
 		elif [ "${USE_SCCACHE_FILE}" == "YES" ] && [ "${USE_SCCACHE_BIND}" == "YES" ]; then
-			echo "Only one of USE_SCCACHE_FILE or USE_SCCACHE_BIND can be set to YES"
+			echo "${_CLR_RED}  ✗${_CLR_RESET} Only one of USE_SCCACHE_FILE or USE_SCCACHE_BIND can be set to YES"
 			errors=1
 		fi
 		if [ -z "${SCCACHE_DIR}" ]; then
-			echo "Sccache folder variable is empty or undefined!"
+			echo "${_CLR_RED}  ✗${_CLR_RESET} Sccache folder variable is empty or undefined!"
 			errors=1
 		elif ! validateSafePath "SCCACHE_DIR" "${SCCACHE_DIR}"; then
 			errors=1
 		fi
 		if [ ! -d "${SCCACHE_DIR}" ] && [ "${USE_SCCACHE_BIND}" == "YES" ]; then
-			echo "Sccache folder ${SCCACHE_DIR} does NOT exist"
+			echo "${_CLR_RED}  ✗${_CLR_RESET} Sccache folder ${SCCACHE_DIR} does NOT exist"
 			errors=1
 		fi
 	fi
 	if [ "${USE_PKG_BIND}" != "NO" ] && [ "${USE_PKG_BIND}" != "YES" ]; then
-		echo "PKG dir bind variable is not set to either YES or NO"
+		echo "${_CLR_RED}  ✗${_CLR_RESET} PKG dir bind variable is not set to either YES or NO"
 		errors=1
 	fi
 	if [ -z "${PKG_DIR}" ]; then
-		echo "PKG folder variable is empty or undefined!"
+		echo "${_CLR_RED}  ✗${_CLR_RESET} PKG folder variable is empty or undefined!"
 		errors=1
 	elif ! validateSafePath "PKG_DIR" "${PKG_DIR}"; then
 		errors=1
 	elif [ ! -d "${PKG_DIR}" ]; then
-		echo "PKG folder ${PKG_DIR} does NOT exist"
+		echo "${_CLR_RED}  ✗${_CLR_RESET} PKG folder ${PKG_DIR} does NOT exist"
 		errors=1
 	fi
 	if [ "${USE_DISTFILES_BIND}" != "NO" ] && [ "${USE_DISTFILES_BIND}" != "YES" ]; then
-		echo "Distfiles bind variable is not set to either YES or NO"
+		echo "${_CLR_RED}  ✗${_CLR_RESET} Distfiles bind variable is not set to either YES or NO"
 		errors=1
 	fi
 	if [ -z "${DISTFILES_DIR}" ]; then
-		echo "Distfiles folder variable is empty or undefined!"
+		echo "${_CLR_RED}  ✗${_CLR_RESET} Distfiles folder variable is empty or undefined!"
 		errors=1
 	elif ! validateSafePath "DISTFILES_DIR" "${DISTFILES_DIR}"; then
 		errors=1
 	elif [ ! -d "${DISTFILES_DIR}" ]; then
-		echo "Distfiles folder ${DISTFILES_DIR} does NOT exist"
+		echo "${_CLR_RED}  ✗${_CLR_RESET} Distfiles folder ${DISTFILES_DIR} does NOT exist"
 		errors=1
 	fi
 	if [ "${USE_REPOS_BIND}" != "NO" ] && [ "${USE_REPOS_BIND}" != "YES" ]; then
-		echo "Repos bind variable is not set to either YES or NO"
+		echo "${_CLR_RED}  ✗${_CLR_RESET} Repos bind variable is not set to either YES or NO"
 		errors=1
 	fi
 	if [ -z "${REPOS_DIR}" ]; then
-		echo "Repos folder variable is empty or undefined!"
+		echo "${_CLR_RED}  ✗${_CLR_RESET} Repos folder variable is empty or undefined!"
 		errors=1
 	elif ! validateSafePath "REPOS_DIR" "${REPOS_DIR}"; then
 		errors=1
 	elif [ ! -d "${REPOS_DIR}" ]; then
-		echo "Repos folder ${REPOS_DIR} does NOT exist"
+		echo "${_CLR_RED}  ✗${_CLR_RESET} Repos folder ${REPOS_DIR} does NOT exist"
 		errors=1
 	fi
 	if [ "${USE_GENTOO_PATCHES_BIND}" != "NO" ] && [ "${USE_GENTOO_PATCHES_BIND}" != "YES" ]; then
-		echo "Gentoo patches bind variable is not set to either YES or NO"
+		echo "${_CLR_RED}  ✗${_CLR_RESET} Gentoo patches bind variable is not set to either YES or NO"
 		errors=1
 	fi
 	if [ -z "${BTRFS_CHECKSUM}" ]; then
 		BTRFS_CHECKSUM="crc32c"
 		elif [ "${BTRFS_CHECKSUM}" != "crc32c" ] && [ "${BTRFS_CHECKSUM}" != "xxhash" ] && [ "${BTRFS_CHECKSUM}" != "sha256" ] && [ "${BTRFS_CHECKSUM}" != "blake2" ]; then
-			echo "BTRFS_CHECKSUM value ${BTRFS_CHECKSUM} is invalid, valid values are: crc32c, xxhash, sha256 and blake2"
+			echo "${_CLR_RED}  ✗${_CLR_RESET} BTRFS_CHECKSUM value ${BTRFS_CHECKSUM} is invalid, valid values are: crc32c, xxhash, sha256 and blake2"
 			errors=1
 	fi
 	if [ -n "${EXTRA_BIND_MOUNT}" ]; then
@@ -506,19 +513,20 @@ function checkVars() {
 				local protected
 				for protected in "${protected_paths[@]}"; do
 					if [ "${mount_path}" = "${protected}" ]; then
-						echo "EXTRA_BIND_MOUNT: ${mount_path} is a protected path and cannot be bind mounted into the chroot"
+						echo "${_CLR_RED}  ✗${_CLR_RESET} EXTRA_BIND_MOUNT: ${mount_path} is a protected path and cannot be bind mounted into the chroot"
 						errors=1
 						break
 					fi
 				done
 				if [ ! -d "${mount_path}" ]; then
-					echo "EXTRA_BIND_MOUNT: directory ${mount_path} does not exist on host"
+					echo "${_CLR_RED}  ✗${_CLR_RESET} EXTRA_BIND_MOUNT: directory ${mount_path} does not exist on host"
 					errors=1
 				fi
 			fi
 		done
 	fi
 	if [ "${errors}" -eq 1 ]; then
+		printf "\n${_CLR_BOLD_RED}  Configuration validation failed. Please fix the errors above.${_CLR_RESET}\n\n"
 		exit 1
 	fi
 }
@@ -534,8 +542,7 @@ function setOutputFolder() {
 	else
 		output_folder="$1"
 		if [ ! -d "${output_folder}" ]; then
-			echo "Output folder ${output_folder} does not exist!"
-			exit 1
+			displayError "Output folder ${output_folder} does not exist!"
 		fi
 	fi
 }
@@ -564,8 +571,7 @@ function setDecompression() {
 			;;
 
 		*)
-			echo "Error: compression method $1 unknown"
-			exit 1
+			displayError "Compression method '$1' is unknown"
 			;;
 	esac
 }
@@ -599,8 +605,7 @@ function setCompression() {
 			;;
 
 		*)
-			echo "Error: compression method $1 unknown"
-			exit 1
+			displayError "Compression method '$1' is unknown"
 			;;
 	esac
 	tarball_output="${tarball_filename}.${tarball_output_extension}"
@@ -626,13 +631,14 @@ function unmountSystem() {
 ##
 function cleanStage() {
 	handleCommand "rm -Rf ${tmp_folder}/tmp/* ${tmp_folder}/var/tmp/portage" "Cleaning portage temporary files"
-	echo -n "Cleaning files ... "
+	printStep "Cleaning package and distfile caches"
 	rm -Rf "${tmp_folder}${PKG_DIR}/"* "${tmp_folder}${DISTFILES_DIR}/"* > /dev/null 2>&1
 	if [ $? -ne 0 ]; then
+		printFail
 		cd "${current_folder}"
 		displayError "ERROR cleaning files in ${tmp_folder}"
 	fi
-	echo "OK"
+	printOK
 	# It might happen that there are no log or no /var/tmp files in which case cleaning will fail so we do it safely
 	handleCommand "find ${tmp_folder}/var/log -type f -exec rm -f {} \; && find ${tmp_folder}/var/tmp -type f -exec rm -f {} \;" "Cleaning logs"
 	handleCommand "rm -f ${tmp_folder}/root/.bash_history" "Cleaning history"
@@ -643,22 +649,24 @@ function cleanStage() {
 ##
 function cleanCaches() {
 	if [ "${USE_CCACHE}" == "YES" ] && [ "${USE_CCACHE_BIND}" != "YES" ]; then
-		echo -n "Cleaning ccache files ... "
+		printStep "Cleaning ccache files"
 		rm -Rf "${tmp_folder}${CCACHE_DIR}/"* > /dev/null 2>&1
 		if [ $? -ne 0 ]; then
+			printFail
 			cd "${current_folder}"
 			displayError "ERROR cleaning ccache files in ${tmp_folder}"
 		fi
-		echo "OK"
+		printOK
 	fi
 	if [ "${USE_SCCACHE}" == "YES" ] && [ "${USE_SCCACHE_BIND}" != "YES" ]; then
-		echo -n "Cleaning sccache files ... "
+		printStep "Cleaning sccache files"
 		rm -Rf "${tmp_folder}${SCCACHE_DIR}/"* > /dev/null 2>&1
 		if [ $? -ne 0 ]; then
+			printFail
 			cd "${current_folder}"
 			displayError "ERROR cleaning sccache files in ${tmp_folder}"
 		fi
-		echo "OK"
+		printOK
 	fi
 }
 
@@ -674,8 +682,7 @@ function setAndCheckFile() {
 		if [[ ${parameters[1]} =~ $re ]] ; then
 			tarball_filename_fullpath="${file_list[${parameters[1]}]}"
 		else
-			echo "Parameter should be an integer for the index"
-			exit 1
+			displayError "Parameter should be an integer for the index"
 		fi
 	else
 		tarball_filename_fullpath="$1"
@@ -683,8 +690,7 @@ function setAndCheckFile() {
 
 	# If we provided filename by parameter, we skip existance check
 	if [ "$#" -eq 0 ] && [ ! -f "${tarball_filename_fullpath}" ]; then
-		echo "File $tarball_filename_fullpath does not exist"
-		exit 1
+		displayError "File ${tarball_filename_fullpath} does not exist"
 	fi
 
 	tarball=`basename "${tarball_filename_fullpath}"`
@@ -694,8 +700,7 @@ function setAndCheckFile() {
 	setDecompression ${tarball_extension}
 	lockfile="/tmp/.${tarball}.lock"
 	if [ -z "${tarball_extension}" ]; then
-		echo "Tarball extension is empty, did you specified correctly the file name?"
-		exit 1
+		displayError "Tarball extension is empty, did you specify the file name correctly?"
 	fi
 }
 
@@ -710,11 +715,9 @@ function checkFileCopy() {
 	origin="${TARBALL_FOLDER}/`basename $1`"
 	destination="${TARBALL_FOLDER}/`basename $2`"
 	if [ ! -f "$origin" ]; then
-		echo "Origin file `basename $origin` does not exist"
-		exit 1
+		displayError "Origin file $(basename $origin) does not exist"
 	elif [ -f "$destination" ]; then
-		echo "Destination file `basename $destination` already exist"
-		exit 1
+		displayError "Destination file $(basename $destination) already exists"
 	fi
 }
 
@@ -791,8 +794,7 @@ function mountZRAM() {
 	zram_device=`basename "${zram_device_full}"`
 	zram_zstd_compression=""
 	if [ -z "${zram_device}" ]; then
-		echo "ERROR: There are no ZRAM devices available";
-		exit 1;
+		displayError "There are no ZRAM devices available"
 	fi
 	if [ -z "${STORAGE_SYSTEM_ZRAM_COMPRESSION_LEVEL}" ]; then
 		zram_zstd_compression="zstd"
@@ -856,7 +858,7 @@ function mountRepos() {
 function mountGentooPatches() {
 	if [ "${USE_GENTOO_PATCHES_BIND}" == "YES" ]; then
 		if [ ! -d "/etc/portage/patches" ]; then
-			echo "WARNING: /etc/portage/patches does not exist on host, skipping gentoo patches bind mount"
+			displayWarning "/etc/portage/patches does not exist on host, skipping gentoo patches bind mount"
 		else
 			mkdir -p "${tmp_folder}/etc/portage/patches"
 			handleCommand "mount --bind /etc/portage/patches ${tmp_folder}/etc/portage/patches" "Mounting Gentoo patches storage"
@@ -1036,7 +1038,8 @@ function extractArchive() {
 function saveChanges() {
 	local reply=""
 	while [[ ! $reply =~ ^[YyNn]$ ]]; do
-		read -p "Do you want to save the changes? [Y/N]: " -r
+		printf "  ${_CLR_BOLD_WHITE}Save changes?${_CLR_RESET} [${_CLR_BOLD_GREEN}Y${_CLR_RESET}/${_CLR_BOLD_RED}N${_CLR_RESET}]: "
+		read -r
 		reply=$REPLY
 	done
 	if [[ $reply =~ ^[Yy]$ ]]; then
@@ -1060,6 +1063,7 @@ function saveChanges() {
 		# If content was not saved, stop any sccache server and set readonly so it can be unmounted safely
 		stopSccacheServer
 		readonlyTEMP
+		printf "  ${_CLR_DIM}No changes saved.${_CLR_RESET}\n"
 	fi
 }
 
@@ -1108,26 +1112,28 @@ function saveCache() {
 		local prev_folder=`pwd`
 		cd "${tmp_folder}${CCACHE_DIR}"
 		handleCommandWithOutput "${tar_compress} | pv -s $(du -sbl . | awk '{print $1}') | ${bzip2} > ${ccache_file}" "Compressing CCache data"
-		echo -n "Cleaning CCache contents after save ... "
+		printStep "Cleaning CCache contents after save"
 		rm -Rf "${tmp_folder}${CCACHE_DIR}/"* > /dev/null 2>&1
 		if [ $? -ne 0 ]; then
+			printFail
 			cd "${current_folder}"
 			displayError "ERROR cleaning CCache contents in ${tmp_folder}"
 		fi
-		echo "OK"
+		printOK
 		cd "${prev_folder}"
 	fi
 	if [ "${USE_SCCACHE}" == "YES" ] && [ "${USE_SCCACHE_FILE}" == "YES" ]; then
 		local prev_folder=`pwd`
 		cd "${tmp_folder}${SCCACHE_DIR}"
 		handleCommandWithOutput "${tar_compress} | pv -s $(du -sbl . | awk '{print $1}') | ${bzip2} > ${sccache_file}" "Compressing Sccache data"
-		echo -n "Cleaning Sccache contents after save ... "
+		printStep "Cleaning Sccache contents after save"
 		rm -Rf "${tmp_folder}${SCCACHE_DIR}/"* > /dev/null 2>&1
 		if [ $? -ne 0 ]; then
+			printFail
 			cd "${current_folder}"
 			displayError "ERROR cleaning Sccache contents in ${tmp_folder}"
 		fi
-		echo "OK"
+		printOK
 		cd "${prev_folder}"
 	fi
 }
@@ -1136,7 +1142,10 @@ function saveCache() {
 # @brief Enters the chroot environment.
 ##
 function doChroot() {
-	echo "Entering chroot, don't forget to run env-update && . /etc/profile"
+	printf "\n  ${_CLR_BOLD_CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${_CLR_RESET}\n"
+	printf "  ${_CLR_BOLD_WHITE}Entering chroot environment${_CLR_RESET}\n"
+	printf "  ${_CLR_DIM}Don't forget to run: env-update && . /etc/profile${_CLR_RESET}\n"
+	printf "  ${_CLR_BOLD_CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${_CLR_RESET}\n\n"
 	if [ "${USE_SCCACHE}" == "YES" ]; then
 		# Pass SCCACHE_DIR via env to avoid shell metacharacter injection from the config value
 		chroot "${tmp_folder}" /usr/bin/env \
@@ -1166,37 +1175,42 @@ function stopSccacheServer() {
 ##
 function doList() {
 	if [ -z "${file_list}" ]; then
-		echo "File list is empty, check ${TARBALL_FOLDER} contents!"
-		exit 1
+		displayError "File list is empty, check ${TARBALL_FOLDER} contents!"
 	fi
-	printf "%-5s %-10s %s\n" "Index" "Size" "File Name"
+	printf "\n  ${_CLR_BOLD_CYAN}%-5s  %-10s  %s${_CLR_RESET}\n" "Index" "Size" "File Name"
+	printf "  ${_CLR_DIM}─────  ──────────  ──────────────────────────────────────────${_CLR_RESET}\n"
 	for i in "${!file_list[@]}"; do
 		tarball_filename=`basename ${file_list[$i]}`
 		local size=`ls -s --block-size=1048576 "${file_list[$i]}" | cut -d' ' -f1`
 		local size_str="${size} MiB"
 		local extra=""
+		local row_open="" row_close=""
 		if [ -f "${TARBALL_FOLDER}/${tarball_filename}.notes" ]; then
-			extra+=" (has notes)"
+			extra+=" ${_CLR_BOLD_GREEN}[notes]${_CLR_RESET}"
 		fi
 		if [ -f "/tmp/.${tarball_filename}.lock" ]; then
-			extra+=" (in use)"
+			extra+=" ${_CLR_BOLD_YELLOW}[in use]${_CLR_RESET}"
+			row_open="${_CLR_YELLOW}"
+			row_close="${_CLR_RESET}"
 		fi
-		printf "%-5s %-10s %s%s\n" "$i" "$size_str" "${tarball_filename}" "$extra"
+		printf "  %s%-5s  %-10s  %s%s%s\n" "${row_open}" "$i" "${size_str}" "${tarball_filename}" "${row_close}" "${extra}"
 	done
+	printf "\n"
 }
 
 ##
 # @brief Creates a lockfile to prevent concurrent operations.
 ##
 function doLock() {
-	echo -n "Setting lockfile ... "
+	printStep "Setting lockfile"
 	if ! (set -o noclobber; : > "${lockfile}") 2>/dev/null; then
-		echo ""
-		echo "Another instance is running using file ${lockfile}"
-		echo "If this is an error manually delete ${lockfile} file"
+		printFail
+		printf "\n  ${_CLR_BOLD_RED}Another instance is already running.${_CLR_RESET}\n"
+		printf "  Lockfile: ${_CLR_CYAN}%s${_CLR_RESET}\n" "${lockfile}"
+		printf "  ${_CLR_DIM}If this is an error, manually delete the lockfile.${_CLR_RESET}\n\n"
 		exit 1
 	fi
-	echo "OK"
+	printOK
 }
 
 ##
@@ -1271,11 +1285,12 @@ function doExport() {
 	if [ -f "${output_folder}/${tarball_output}" ]; then
 		local reply=""
 		while [[ ! $reply =~ ^[YyNn]$ ]]; do
-			read -p "File ${tarball_output} already exists, overwrite? [Y/N]: " -r
+			printf "  ${_CLR_BOLD_YELLOW}File ${_CLR_BOLD_WHITE}%s${_CLR_RESET}${_CLR_BOLD_YELLOW} already exists. Overwrite?${_CLR_RESET} [${_CLR_BOLD_GREEN}Y${_CLR_RESET}/${_CLR_BOLD_RED}N${_CLR_RESET}]: " "${tarball_output}"
+			read -r
 			reply=$REPLY
 		done
 		if [[ $reply =~ ^[Nn]$ ]]; then
-			echo "No action was done"
+			printf "  ${_CLR_DIM}No action was taken.${_CLR_RESET}\n"
 			exit 1
 		fi
 	fi
@@ -1297,11 +1312,12 @@ function doDelete() {
 	setAndCheckFile
 	local reply=""
 	while [[ ! $reply =~ ^[YyNn]$ ]]; do
-		read -p "Are you sure you want to delete ${tarball}? [Y/N]: " -r
+		printf "  ${_CLR_BOLD_YELLOW}Delete ${_CLR_BOLD_WHITE}%s${_CLR_RESET}${_CLR_BOLD_YELLOW}?${_CLR_RESET} [${_CLR_BOLD_GREEN}Y${_CLR_RESET}/${_CLR_BOLD_RED}N${_CLR_RESET}]: " "${tarball}"
+		read -r
 		reply=$REPLY
 	done
 	if [[ $reply =~ ^[Nn]$ ]]; then
-		echo "No action was done"
+		printf "  ${_CLR_DIM}No action was taken.${_CLR_RESET}\n"
 		exit 0
 	fi
 	doLock
@@ -1462,9 +1478,6 @@ function checkDownloadParameters() {
 ##
 # @brief Downloads a Gentoo stage tarball based on the specified architecture and profile.
 ##
-##
-# @brief Downloads a Gentoo stage tarball based on the specified architecture and profile.
-##
 function doDownload() {
 	arch="${parameters[1]}"
 	profile="${parameters[2]}"
@@ -1476,31 +1489,25 @@ function doDownload() {
 	createTMPFolder
 	handleCommand "curl --fail -o ${tmp_folder}/${stage_info_file} ${stage_base_url}/${stage_info_file}" "Downloading stage information"
 	if [ ! -s "${tmp_folder}/${stage_info_file}" ]; then
-		echo "Failed to download or empty stage info file: ${stage_info_file}"
-		deleteTMPFolder
-		exit 1
+		displayError "Failed to download or empty stage info file: ${stage_info_file}"
 	fi
 	stage_file="`grep -m1 '^[^#].*\.tar\.xz' \"${tmp_folder}/${stage_info_file}\" | awk '{print $1}'`"
 	if [ -z "${stage_file}" ]; then
-		echo "Could not parse stage file path from info file: ${stage_info_file}"
-		deleteTMPFolder
-		exit 1
+		displayError "Could not parse stage file path from info file: ${stage_info_file}"
 	fi
 	# Validate the stage file path to prevent injection from a compromised server response
 	if [[ ! "${stage_file}" =~ ^[a-zA-Z0-9/_.-]+\.tar\.xz$ ]]; then
-		echo "Stage file path from info file contains unexpected characters: ${stage_file}"
-		deleteTMPFolder
-		exit 1
+		displayError "Stage file path from info file contains unexpected characters: ${stage_file}"
 	fi
 	local stage_basename
 	stage_basename="$(basename "${stage_file}")"
 	handleCommand "curl --fail -o ${tmp_folder}/${stage_basename} ${stage_base_url}/${stage_file}" "Downloading ${stage_basename}"
 	# Best-effort integrity verification via DIGESTS file
-	echo -n "Downloading integrity data for ${stage_basename} ... "
+	printStep "Downloading integrity data for ${stage_basename}"
 	if curl --fail --silent -o "${tmp_folder}/${stage_basename}.DIGESTS" \
 	        "${stage_base_url}/${stage_file}.DIGESTS" 2>/dev/null; then
-		echo "OK"
-		echo -n "Verifying integrity of ${stage_basename} ... "
+		printOK
+		printStep "Verifying integrity of ${stage_basename}"
 		# Match SHA512 (128 hex chars) or SHA256 (64 hex chars) line for the tarball
 		local hash_line
 		hash_line="$(grep -E "^[0-9a-fA-F]{128}[[:space:]]+${stage_basename}$" \
@@ -1517,24 +1524,23 @@ function doDownload() {
 				hash_algo="sha256sum"
 			fi
 			if ( cd "${tmp_folder}" && echo "${hash_line}" | ${hash_algo} -c --status 2>/dev/null ); then
-				echo "OK"
+				printOK
 			else
-				echo "CHECKSUM MISMATCH"
+				printFail
 				rm -f "${tmp_folder}/${stage_basename}" "${tmp_folder}/${stage_basename}.DIGESTS"
 				deleteTMPFolder
-				echo "Integrity check failed for ${stage_basename} - aborting"
-				exit 1
+				displayError "Integrity check failed for ${stage_basename}"
 			fi
 		else
-			echo "SKIPPED (could not extract hash from DIGESTS file)"
+			printSkip "could not extract hash from DIGESTS file"
 		fi
 		rm -f "${tmp_folder}/${stage_basename}.DIGESTS"
 	else
-		echo "SKIPPED (DIGESTS file not available on this mirror)"
+		printSkip "DIGESTS file not available on this mirror"
 	fi
 	handleCommand "mv '${tmp_folder}/${stage_basename}' '${TARBALL_FOLDER}/${stage_basename}'" "Moving stage data from temporary folder"
 	deleteTMPFolder
-	echo "${stage_basename} downloaded to ${TARBALL_FOLDER}"
+	printf "\n  ${_CLR_BOLD_GREEN}✓${_CLR_RESET} ${_CLR_BOLD_WHITE}%s${_CLR_RESET} downloaded to ${_CLR_CYAN}%s${_CLR_RESET}\n\n" "${stage_basename}" "${TARBALL_FOLDER}"
 }
 
 ##
@@ -1588,7 +1594,7 @@ function doNotes() {
 			handleCommand "rm -f '${tarball_filename_fullpath}.notes'" "Deleting notes for ${tarball}"
 			;;
 		edit)
-			echo "Editing notes for `basename ${tarball_filename_fullpath}`"
+			printf "  ${_CLR_CYAN}▸${_CLR_RESET} Editing notes for ${_CLR_BOLD_WHITE}%s${_CLR_RESET}\n" "$(basename ${tarball_filename_fullpath})"
 			if [ "${DETACH_NOTE_EDITOR}" == "YES" ]; then
 				"${TARBALL_NOTE_EDITOR}" "${tarball_filename_fullpath}.notes" > /dev/null 2>&1 &
 			else
@@ -1597,7 +1603,7 @@ function doNotes() {
 			
 			;;
 		*)
-			echo "Unrecognized notes subcommand"
+			displayError "Unrecognized notes subcommand"
 			helpNotes
 	esac
 }
