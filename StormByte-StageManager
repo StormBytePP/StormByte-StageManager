@@ -804,7 +804,7 @@ function mountZRAM() {
 	handleCommand "echo 1 > /sys/block/${zram_device}/reset" "Resetting ZRAM"
 	handleCommand "echo '${STORAGE_SIZE}' > /sys/block/${zram_device}/disksize" "Setting ZRAM size to ${STORAGE_SIZE}"
 	handleCommand "mkfs.btrfs --checksum ${BTRFS_CHECKSUM} ${zram_device_full}" "Initializing ${zram_device} with btrfs"
-	handleCommand "mount ${zram_device_full} '${tmp_folder}' -o noatime,compress=${zram_zstd_compression}" "Mounting ${zram_device} storage with compression ${zram_zstd_compression}"
+	handleCommand "mount ${zram_device_full} '${tmp_folder}' -o noatime,nodiratime,nodatacow,commit=300,autodefrag,compress=${zram_zstd_compression}" "Mounting ${zram_device} storage with compression ${zram_zstd_compression}"
 }
 
 ##
