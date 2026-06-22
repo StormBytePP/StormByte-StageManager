@@ -804,14 +804,14 @@ mountZRAM() {
 		return 1
 	fi
 
-	handleCommand "echo 1 > /sys/block/${zram_device}/reset" "Resetting ZRAM"
+	handleCommand "echo 1 > /sys/block/${zram_device}/reset" "Resetting ZRAM device ${zram_device}"
 
 	# Compresión con printf (más robusto que echo)
 	if [ -n "${STORAGE_SYSTEM_ZRAM_COMPRESSION_ALGO}" ]; then
 		handleCommand "printf '%s\n' '${STORAGE_SYSTEM_ZRAM_COMPRESSION_ALGO}' > /sys/block/${zram_device}/comp_algorithm" "Setting compression to ${STORAGE_SYSTEM_ZRAM_COMPRESSION_ALGO}"
 	fi
 
-	handleCommand "echo '${STORAGE_SIZE}' > /sys/block/${zram_device}/disksize" "Setting ZRAM size"
+	handleCommand "echo '${STORAGE_SIZE}' > /sys/block/${zram_device}/disksize" "Setting ZRAM size (${STORAGE_SIZE})"
 
 	handleCommand "mkfs.ext2 -F -q ${zram_device_full}" "Creating ext2 on ZRAM"
 	handleCommand "mount -t ext2 -o noatime,nodiratime,discard ${zram_device_full} '${tmp_folder}'" "Mounting ext2 on ZRAM"
