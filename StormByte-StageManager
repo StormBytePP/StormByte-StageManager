@@ -27,7 +27,7 @@ fi
 
 loadConfig
 
-version="4.0.0"
+version="4.0.1"
 
 ##
 # @brief Emergency cleanup handler for unexpected termination.
@@ -132,9 +132,10 @@ gentoo_base_url="https://repo.ifca.es/gentoo-distfiles/releases"
 ##
 function header() {
 	printf "\n"
-	printf "  ${_CLR_BOLD_CYAN}StormByte Gentoo Stage Manager${_CLR_RESET}  ${_CLR_BOLD_WHITE}v${version}${_CLR_RESET}\n"
-	printf "  ${_CLR_DIM}David C. Manuelda a.k.a StormByte <StormByte@gmail.com>${_CLR_RESET}\n"
-	printf "  ${_CLR_BOLD_CYAN}──────────────────────────────────────────────────${_CLR_RESET}\n"
+	printf "  ${_CLR_BOLD_CYAN}┌────────────────────────────────────────────────────┐${_CLR_RESET}\n"
+	printf "  ${_CLR_BOLD_CYAN}│${_CLR_RESET}  ${_CLR_BOLD_WHITE}StormByte Gentoo Stage Manager${_CLR_RESET}  ${_CLR_BOLD_CYAN}v${version}${_CLR_RESET}            ${_CLR_BOLD_CYAN}│${_CLR_RESET}\n"
+	printf "  ${_CLR_BOLD_CYAN}│${_CLR_RESET}  ${_CLR_DIM}David C. Manuelda a.k.a StormByte${_CLR_RESET}                 ${_CLR_BOLD_CYAN}│${_CLR_RESET}\n"
+	printf "  ${_CLR_BOLD_CYAN}└────────────────────────────────────────────────────┘${_CLR_RESET}\n"
 	printf "\n"
 }
 
@@ -144,17 +145,19 @@ function header() {
 # Provides a summary of available commands and their usage.
 ##
 function usage() {
-	printf "  ${_CLR_BOLD_WHITE}Description:${_CLR_RESET}\n"
+	printf "  ${_CLR_BOLD_WHITE}Description${_CLR_RESET}\n"
 	printf "    Manages Gentoo chroot environments from compressed tarballs.\n"
-	printf "    Configuration: ${_CLR_CYAN}/etc/conf.d/StormByte-StageManager.conf${_CLR_RESET}\n\n"
-	printf "  ${_CLR_BOLD_WHITE}Usage:${_CLR_RESET}  ${_CLR_BOLD_GREEN}%s${_CLR_RESET} ${_CLR_YELLOW}<command>${_CLR_RESET} ${_CLR_DIM}[arguments]${_CLR_RESET}\n\n" "$self"
-	printf "  ${_CLR_BOLD_WHITE}Commands:${_CLR_RESET}  "
+	printf "    Config  →  ${_CLR_CYAN}/etc/conf.d/StormByte-StageManager.conf${_CLR_RESET}\n\n"
+	printf "  ${_CLR_BOLD_WHITE}Usage${_CLR_RESET}\n"
+	printf "    ${_CLR_BOLD_GREEN}%s${_CLR_RESET} ${_CLR_YELLOW}<command>${_CLR_RESET} ${_CLR_DIM}[arguments]${_CLR_RESET}\n\n" "$self"
+	printf "  ${_CLR_BOLD_WHITE}Commands${_CLR_RESET}\n"
+	printf "    "
 	for cmd in "${available_commands[@]}"; do
 		printf "${_CLR_BOLD_GREEN}%s${_CLR_RESET}  " "$cmd"
 	done
 	printf "\n\n"
-	printf "    Use ${_CLR_BOLD_GREEN}%s help <command>${_CLR_RESET} for detailed help.\n" "$self"
-	printf "    Use ${_CLR_BOLD_GREEN}%s help compression${_CLR_RESET} for compression format details.\n\n" "$self"
+	printf "    ${_CLR_DIM}→${_CLR_RESET} ${_CLR_BOLD_GREEN}%s help <command>${_CLR_RESET}     detailed help\n" "$self"
+	printf "    ${_CLR_DIM}→${_CLR_RESET} ${_CLR_BOLD_GREEN}%s help compression${_CLR_RESET}  compression formats\n\n" "$self"
 }
 
 ##
@@ -163,9 +166,10 @@ function usage() {
 # Explains how to use the `list` command to view tarball files.
 ##
 function helpList() {
-	printf "  ${_CLR_BOLD_WHITE}Usage:${_CLR_RESET}  ${_CLR_BOLD_GREEN}%s list${_CLR_RESET}\n\n" "$self"
-	printf "    Lists files in ${_CLR_CYAN}%s${_CLR_RESET},\n" "${TARBALL_FOLDER}"
-	printf "    showing index number, size, and filename.\n"
+	printf "  ${_CLR_BOLD_WHITE}Usage${_CLR_RESET}\n"
+	printf "    ${_CLR_BOLD_GREEN}%s list${_CLR_RESET}\n\n" "$self"
+	printf "    Lists files in ${_CLR_CYAN}%s${_CLR_RESET}\n" "${TARBALL_FOLDER}"
+	printf "    showing index, size and filename.\n"
 	printf "    Use the index to refer to files in other commands.\n\n"
 }
 
@@ -175,9 +179,10 @@ function helpList() {
 # Explains how to use the `use` command to configure and enter a chroot.
 ##
 function helpUse() {
-	printf "  ${_CLR_BOLD_WHITE}Usage:${_CLR_RESET}  ${_CLR_BOLD_GREEN}%s use${_CLR_RESET} ${_CLR_YELLOW}<index>${_CLR_RESET}\n\n" "$self"
-	printf "    Uses the file at the given index (see ${_CLR_BOLD_GREEN}list${_CLR_RESET}) to configure\n"
-	printf "    and enter a chroot environment.\n\n"
+	printf "  ${_CLR_BOLD_WHITE}Usage${_CLR_RESET}\n"
+	printf "    ${_CLR_BOLD_GREEN}%s use${_CLR_RESET} ${_CLR_YELLOW}<index>${_CLR_RESET}\n\n" "$self"
+	printf "    Uses the file at the given index (see ${_CLR_BOLD_GREEN}list${_CLR_RESET})\n"
+	printf "    to configure and enter a chroot environment.\n\n"
 }
 
 ##
@@ -186,8 +191,10 @@ function helpUse() {
 # Explains how to use the `rebase` command to copy and rebase a tarball.
 ##
 function helpRebase() {
-	printf "  ${_CLR_BOLD_WHITE}Usage:${_CLR_RESET}  ${_CLR_BOLD_GREEN}%s rebase${_CLR_RESET} ${_CLR_YELLOW}<index> <new_file_name>${_CLR_RESET}\n\n" "$self"
-	printf "    Similar to ${_CLR_BOLD_GREEN}use${_CLR_RESET}, but copies the tarball to a new file before entering chroot.\n"
+	printf "  ${_CLR_BOLD_WHITE}Usage${_CLR_RESET}\n"
+	printf "    ${_CLR_BOLD_GREEN}%s rebase${_CLR_RESET} ${_CLR_YELLOW}<index> <new_file_name>${_CLR_RESET}\n\n" "$self"
+	printf "    Similar to ${_CLR_BOLD_GREEN}use${_CLR_RESET}, but copies the tarball to a new file\n"
+	printf "    before entering the chroot.\n"
 	printf "    Compression is determined by the file extension.\n"
 	printf "    See ${_CLR_BOLD_GREEN}%s help compression${_CLR_RESET} for details.\n\n" "$self"
 }
@@ -198,7 +205,8 @@ function helpRebase() {
 # Explains how to use the `convert` command to recompress a tarball.
 ##
 function helpConvert() {
-	printf "  ${_CLR_BOLD_WHITE}Usage:${_CLR_RESET}  ${_CLR_BOLD_GREEN}%s convert${_CLR_RESET} ${_CLR_YELLOW}<index> <compression_format>${_CLR_RESET}\n\n" "$self"
+	printf "  ${_CLR_BOLD_WHITE}Usage${_CLR_RESET}\n"
+	printf "    ${_CLR_BOLD_GREEN}%s convert${_CLR_RESET} ${_CLR_YELLOW}<index> <compression_format>${_CLR_RESET}\n\n" "$self"
 	printf "    Recompresses the tarball at the given index to the specified format.\n"
 	printf "    An error is raised if the target filename already exists.\n"
 	printf "    See ${_CLR_BOLD_GREEN}%s help compression${_CLR_RESET} for available formats.\n\n" "$self"
@@ -210,7 +218,8 @@ function helpConvert() {
 # Explains how to use the `export` command to export a tarball to a destination folder.
 ##
 function helpExport() {
-	printf "  ${_CLR_BOLD_WHITE}Usage:${_CLR_RESET}  ${_CLR_BOLD_GREEN}%s export${_CLR_RESET} ${_CLR_YELLOW}<index> <destination_folder> <compression_format>${_CLR_RESET}\n\n" "$self"
+	printf "  ${_CLR_BOLD_WHITE}Usage${_CLR_RESET}\n"
+	printf "    ${_CLR_BOLD_GREEN}%s export${_CLR_RESET} ${_CLR_YELLOW}<index> <destination_folder> <compression_format>${_CLR_RESET}\n\n" "$self"
 	printf "    Similar to ${_CLR_BOLD_GREEN}convert${_CLR_RESET}, but exports to a specified destination folder.\n"
 	printf "    The destination folder must already exist.\n\n"
 }
@@ -221,7 +230,8 @@ function helpExport() {
 # Explains how to use the `delete` command to remove a tarball.
 ##
 function helpDelete() {
-	printf "  ${_CLR_BOLD_WHITE}Usage:${_CLR_RESET}  ${_CLR_BOLD_GREEN}%s delete${_CLR_RESET} ${_CLR_YELLOW}<index>${_CLR_RESET}\n\n" "$self"
+	printf "  ${_CLR_BOLD_WHITE}Usage${_CLR_RESET}\n"
+	printf "    ${_CLR_BOLD_GREEN}%s delete${_CLR_RESET} ${_CLR_YELLOW}<index>${_CLR_RESET}\n\n" "$self"
 	printf "    Permanently deletes the tarball file at the given index.\n\n"
 }
 
@@ -231,8 +241,10 @@ function helpDelete() {
 # Explains how to use the `rename` command to rename a tarball.
 ##
 function helpRename() {
-	printf "  ${_CLR_BOLD_WHITE}Usage:${_CLR_RESET}  ${_CLR_BOLD_GREEN}%s rename${_CLR_RESET} ${_CLR_YELLOW}<index> <new_file_name>${_CLR_RESET}\n\n" "$self"
-	printf "    Renames the tarball at the given index to a new name in the same folder.\n\n"
+	printf "  ${_CLR_BOLD_WHITE}Usage${_CLR_RESET}\n"
+	printf "    ${_CLR_BOLD_GREEN}%s rename${_CLR_RESET} ${_CLR_YELLOW}<index> <new_file_name>${_CLR_RESET}\n\n" "$self"
+	printf "    Renames the tarball at the given index to a new name\n"
+	printf "    in the same folder.\n\n"
 }
 
 ##
@@ -244,12 +256,14 @@ function helpCompression() {
 	printf "  ${_CLR_BOLD_WHITE}Compression Formats${_CLR_RESET}\n\n"
 	printf "    Compression is determined by file extension or algorithm name,\n"
 	printf "    depending on the command used.\n\n"
-	printf "  ${_CLR_BOLD_WHITE}Extensions:${_CLR_RESET}  "
+	printf "  ${_CLR_BOLD_WHITE}Extensions${_CLR_RESET}\n"
+	printf "    "
 	for ext in "${available_compression_extensions[@]}"; do
 		printf "${_CLR_CYAN}%s${_CLR_RESET}  " "$ext"
 	done
-	printf "\n"
-	printf "  ${_CLR_BOLD_WHITE}Algorithms:${_CLR_RESET}  "
+	printf "\n\n"
+	printf "  ${_CLR_BOLD_WHITE}Algorithms${_CLR_RESET}\n"
+	printf "    "
 	for fmt in "${available_compression_formats[@]}"; do
 		printf "${_CLR_CYAN}%s${_CLR_RESET}  " "$fmt"
 	done
@@ -262,18 +276,19 @@ function helpCompression() {
 # Explains how to use the `download` command to fetch a Gentoo stage tarball.
 ##
 function helpDownload() {
-	printf "  ${_CLR_BOLD_WHITE}Usage:${_CLR_RESET}  ${_CLR_BOLD_GREEN}%s download${_CLR_RESET} ${_CLR_YELLOW}<arch> [profile]${_CLR_RESET}\n\n" "$self"
+	printf "  ${_CLR_BOLD_WHITE}Usage${_CLR_RESET}\n"
+	printf "    ${_CLR_BOLD_GREEN}%s download${_CLR_RESET} ${_CLR_YELLOW}<arch> [profile]${_CLR_RESET}\n\n" "$self"
 	printf "    Downloads a Gentoo stage3 for the selected arch and profile.\n"
 	printf "    If profile is not specified, ${_CLR_CYAN}default${_CLR_RESET} will be used.\n\n"
-	printf "  ${_CLR_BOLD_WHITE}i486:${_CLR_RESET}\n"
+	printf "  ${_CLR_BOLD_WHITE}i486${_CLR_RESET}\n"
 	printf "    ${_CLR_CYAN}default${_CLR_RESET}\n\n"
-	printf "  ${_CLR_BOLD_WHITE}i686:${_CLR_RESET}\n"
+	printf "  ${_CLR_BOLD_WHITE}i686${_CLR_RESET}\n"
 	printf "    ${_CLR_CYAN}default${_CLR_RESET}  ${_CLR_CYAN}hardened${_CLR_RESET}  ${_CLR_CYAN}systemd${_CLR_RESET}  ${_CLR_CYAN}uclibc-hardened${_CLR_RESET}  ${_CLR_CYAN}uclibc-vanilla${_CLR_RESET}\n\n"
-	printf "  ${_CLR_BOLD_WHITE}amd64:${_CLR_RESET}\n"
+	printf "  ${_CLR_BOLD_WHITE}amd64${_CLR_RESET}\n"
 	printf "    ${_CLR_CYAN}default${_CLR_RESET} ${_CLR_DIM}(multilib)${_CLR_RESET}  ${_CLR_CYAN}hardened${_CLR_RESET}  ${_CLR_CYAN}nomultilib${_CLR_RESET}  ${_CLR_CYAN}systemd${_CLR_RESET}\n"
 	printf "    ${_CLR_CYAN}hardened+nomultilib${_CLR_RESET}  ${_CLR_CYAN}hardened-selinux${_CLR_RESET}  ${_CLR_CYAN}hardened-selinux+nomultilib${_CLR_RESET}\n"
 	printf "    ${_CLR_CYAN}uclibc-hardened${_CLR_RESET}  ${_CLR_CYAN}uclibc-vanilla${_CLR_RESET}\n\n"
-	printf "  ${_CLR_BOLD_WHITE}x32:${_CLR_RESET}\n"
+	printf "  ${_CLR_BOLD_WHITE}x32${_CLR_RESET}\n"
 	printf "    ${_CLR_CYAN}default${_CLR_RESET}\n\n"
 }
 
@@ -283,10 +298,12 @@ function helpDownload() {
 # Explains how to use the `notes` command to manage notes for tarballs.
 ##
 function helpNotes() {
-	printf "  ${_CLR_BOLD_WHITE}Usage:${_CLR_RESET}  ${_CLR_BOLD_GREEN}%s notes${_CLR_RESET} ${_CLR_YELLOW}<index> <subcommand>${_CLR_RESET}\n\n" "$self"
-	printf "    Manages notes for a stage tarball. Subcommands:\n\n"
-	printf "    ${_CLR_BOLD_GREEN}edit${_CLR_RESET}    Edits notes using the configured editor.\n"
-	printf "    ${_CLR_BOLD_GREEN}delete${_CLR_RESET}  Deletes notes for the stage.\n\n"
+	printf "  ${_CLR_BOLD_WHITE}Usage${_CLR_RESET}\n"
+	printf "    ${_CLR_BOLD_GREEN}%s notes${_CLR_RESET} ${_CLR_YELLOW}<index> <subcommand>${_CLR_RESET}\n\n" "$self"
+	printf "    Manages notes for a stage tarball.\n\n"
+	printf "  ${_CLR_BOLD_WHITE}Subcommands${_CLR_RESET}\n"
+	printf "    ${_CLR_BOLD_GREEN}edit${_CLR_RESET}    Edits notes using the configured editor\n"
+	printf "    ${_CLR_BOLD_GREEN}delete${_CLR_RESET}  Deletes notes for the stage\n\n"
 }
 
 ##
@@ -500,9 +517,9 @@ function checkVars() {
 	fi
 	if [ -z "${BTRFS_CHECKSUM}" ]; then
 		BTRFS_CHECKSUM="crc32c"
-		elif [ "${BTRFS_CHECKSUM}" != "crc32c" ] && [ "${BTRFS_CHECKSUM}" != "xxhash" ] && [ "${BTRFS_CHECKSUM}" != "sha256" ] && [ "${BTRFS_CHECKSUM}" != "blake2" ]; then
-			echo "${_CLR_RED}  ✗${_CLR_RESET} BTRFS_CHECKSUM value ${BTRFS_CHECKSUM} is invalid, valid values are: crc32c, xxhash, sha256 and blake2"
-			errors=1
+	elif [ "${BTRFS_CHECKSUM}" != "crc32c" ] && [ "${BTRFS_CHECKSUM}" != "xxhash" ] && [ "${BTRFS_CHECKSUM}" != "sha256" ] && [ "${BTRFS_CHECKSUM}" != "blake2" ]; then
+		echo "${_CLR_RED}  ✗${_CLR_RESET} BTRFS_CHECKSUM value ${BTRFS_CHECKSUM} is invalid, valid values are: crc32c, xxhash, sha256 and blake2"
+		errors=1
 	fi
 	if [ -n "${EXTRA_BIND_MOUNT}" ]; then
 		local protected_paths=("/" "/dev" "/sys" "/proc" "/run" "/tmp" "/etc" "/bin" "/sbin" "/lib" "/lib64" "/usr" "/boot" "/root")
@@ -1048,7 +1065,7 @@ function extractArchive() {
 function saveChanges() {
 	local reply=""
 	while [[ ! $reply =~ ^[YyNn]$ ]]; do
-		printf "  ${_CLR_BOLD_WHITE}Save changes?${_CLR_RESET} [${_CLR_BOLD_GREEN}Y${_CLR_RESET}/${_CLR_BOLD_RED}N${_CLR_RESET}]: "
+		printf "  ${_CLR_BOLD_WHITE}Save changes?${_CLR_RESET}  [${_CLR_BOLD_GREEN}Y${_CLR_RESET}/${_CLR_BOLD_RED}N${_CLR_RESET}]: "
 		read -r
 		reply=$REPLY
 	done
@@ -1152,10 +1169,12 @@ function saveCache() {
 # @brief Enters the chroot environment.
 ##
 function doChroot() {
-	printf "\n  ${_CLR_BOLD_CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${_CLR_RESET}\n"
-	printf "  ${_CLR_BOLD_WHITE}Entering chroot environment${_CLR_RESET}\n"
-	printf "  ${_CLR_DIM}Don't forget to run: env-update && . /etc/profile${_CLR_RESET}\n"
-	printf "  ${_CLR_BOLD_CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${_CLR_RESET}\n\n"
+	printf "\n"
+	printf "  ${_CLR_BOLD_CYAN}┌────────────────────────────────────────────────────┐${_CLR_RESET}\n"
+	printf "  ${_CLR_BOLD_CYAN}│${_CLR_RESET}  ${_CLR_BOLD_WHITE}Entering chroot environment${_CLR_RESET}                       ${_CLR_BOLD_CYAN}│${_CLR_RESET}\n"
+	printf "  ${_CLR_BOLD_CYAN}│${_CLR_RESET}  ${_CLR_DIM}Don't forget: env-update && . /etc/profile${_CLR_RESET}        ${_CLR_BOLD_CYAN}│${_CLR_RESET}\n"
+	printf "  ${_CLR_BOLD_CYAN}└────────────────────────────────────────────────────┘${_CLR_RESET}\n"
+	printf "\n"
 	if [ "${USE_SCCACHE}" == "YES" ]; then
 		# Pass SCCACHE_DIR via env to avoid shell metacharacter injection from the config value
 		chroot "${tmp_folder}" /usr/bin/env \
@@ -1187,7 +1206,8 @@ function doList() {
 	if [ -z "${file_list}" ]; then
 		displayError "File list is empty, check ${TARBALL_FOLDER} contents!"
 	fi
-	printf "\n  ${_CLR_BOLD_CYAN}%-5s  %-10s  %s${_CLR_RESET}\n" "Index" "Size" "File Name"
+	printf "\n"
+	printf "  ${_CLR_BOLD_CYAN}%-5s  %-10s  %s${_CLR_RESET}\n" "Index" "Size" "File Name"
 	printf "  ${_CLR_DIM}─────  ──────────  ──────────────────────────────────────────${_CLR_RESET}\n"
 	for i in "${!file_list[@]}"; do
 		tarball_filename=`basename ${file_list[$i]}`
@@ -1295,7 +1315,7 @@ function doExport() {
 	if [ -f "${output_folder}/${tarball_output}" ]; then
 		local reply=""
 		while [[ ! $reply =~ ^[YyNn]$ ]]; do
-			printf "  ${_CLR_BOLD_YELLOW}File ${_CLR_BOLD_WHITE}%s${_CLR_RESET}${_CLR_BOLD_YELLOW} already exists. Overwrite?${_CLR_RESET} [${_CLR_BOLD_GREEN}Y${_CLR_RESET}/${_CLR_BOLD_RED}N${_CLR_RESET}]: " "${tarball_output}"
+			printf "  ${_CLR_BOLD_YELLOW}File ${_CLR_BOLD_WHITE}%s${_CLR_RESET}${_CLR_BOLD_YELLOW} already exists. Overwrite?${_CLR_RESET}  [${_CLR_BOLD_GREEN}Y${_CLR_RESET}/${_CLR_BOLD_RED}N${_CLR_RESET}]: " "${tarball_output}"
 			read -r
 			reply=$REPLY
 		done
@@ -1322,7 +1342,7 @@ function doDelete() {
 	setAndCheckFile
 	local reply=""
 	while [[ ! $reply =~ ^[YyNn]$ ]]; do
-		printf "  ${_CLR_BOLD_YELLOW}Delete ${_CLR_BOLD_WHITE}%s${_CLR_RESET}${_CLR_BOLD_YELLOW}?${_CLR_RESET} [${_CLR_BOLD_GREEN}Y${_CLR_RESET}/${_CLR_BOLD_RED}N${_CLR_RESET}]: " "${tarball}"
+		printf "  ${_CLR_BOLD_YELLOW}Delete ${_CLR_BOLD_WHITE}%s${_CLR_RESET}${_CLR_BOLD_YELLOW}?${_CLR_RESET}  [${_CLR_BOLD_GREEN}Y${_CLR_RESET}/${_CLR_BOLD_RED}N${_CLR_RESET}]: " "${tarball}"
 		read -r
 		reply=$REPLY
 	done
@@ -1515,16 +1535,16 @@ function doDownload() {
 	# Best-effort integrity verification via DIGESTS file
 	printStep "Downloading integrity data for ${stage_basename}"
 	if curl --fail --silent -o "${tmp_folder}/${stage_basename}.DIGESTS" \
-	        "${stage_base_url}/${stage_file}.DIGESTS" 2>/dev/null; then
+			"${stage_base_url}/${stage_file}.DIGESTS" 2>/dev/null; then
 		printOK
 		printStep "Verifying integrity of ${stage_basename}"
 		# Match SHA512 (128 hex chars) or SHA256 (64 hex chars) line for the tarball
 		local hash_line
 		hash_line="$(grep -E "^[0-9a-fA-F]{128}[[:space:]]+${stage_basename}$" \
-		    "${tmp_folder}/${stage_basename}.DIGESTS" 2>/dev/null | head -1)"
+			"${tmp_folder}/${stage_basename}.DIGESTS" 2>/dev/null | head -1)"
 		if [ -z "${hash_line}" ]; then
 			hash_line="$(grep -E "^[0-9a-fA-F]{64}[[:space:]]+${stage_basename}$" \
-			    "${tmp_folder}/${stage_basename}.DIGESTS" 2>/dev/null | head -1)"
+				"${tmp_folder}/${stage_basename}.DIGESTS" 2>/dev/null | head -1)"
 		fi
 		if [ -n "${hash_line}" ]; then
 			local hash_algo
@@ -1550,7 +1570,7 @@ function doDownload() {
 	fi
 	handleCommand "mv '${tmp_folder}/${stage_basename}' '${TARBALL_FOLDER}/${stage_basename}'" "Moving stage data from temporary folder"
 	deleteTMPFolder
-	printf "\n  ${_CLR_BOLD_GREEN}✓${_CLR_RESET} ${_CLR_BOLD_WHITE}%s${_CLR_RESET} downloaded to ${_CLR_CYAN}%s${_CLR_RESET}\n\n" "${stage_basename}" "${TARBALL_FOLDER}"
+	printf "\n  ${_CLR_BOLD_GREEN}✓${_CLR_RESET}  ${_CLR_BOLD_WHITE}%s${_CLR_RESET}  →  ${_CLR_CYAN}%s${_CLR_RESET}\n\n" "${stage_basename}" "${TARBALL_FOLDER}"
 }
 
 ##
@@ -1604,7 +1624,7 @@ function doNotes() {
 			handleCommand "rm -f '${tarball_filename_fullpath}.notes'" "Deleting notes for ${tarball}"
 			;;
 		edit)
-			printf "  ${_CLR_CYAN}▸${_CLR_RESET} Editing notes for ${_CLR_BOLD_WHITE}%s${_CLR_RESET}\n" "$(basename ${tarball_filename_fullpath})"
+			printf "  ${_CLR_CYAN}▸${_CLR_RESET}  Editing notes for ${_CLR_BOLD_WHITE}%s${_CLR_RESET}\n" "$(basename ${tarball_filename_fullpath})"
 			if [ "${DETACH_NOTE_EDITOR}" == "YES" ]; then
 				"${TARBALL_NOTE_EDITOR}" "${tarball_filename_fullpath}.notes" > /dev/null 2>&1 &
 			else
