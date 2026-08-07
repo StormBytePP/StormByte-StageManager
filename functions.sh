@@ -85,6 +85,6 @@ function list_contains() { [[ "$1" =~ (^|[[:space:]])"$2"($|[[:space:]]) ]]; }
 
 # Useful variables
 workdir="${0%/*}"
-self=`basename $0`
+self=$(basename "$0")
 parameters=("${@:1}")
-current_dir=`pwd`
+current_dir=$(pwd)

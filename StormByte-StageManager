@@ -58,7 +58,7 @@ trap emergencyCleanup EXIT INT TERM HUP
 ##
 # @brief Current working directory.
 ##
-current_folder=`pwd`
+current_folder=$(pwd)
 
 ##
 # @brief List of tarball files in the specified folder.
@@ -716,7 +716,7 @@ function setAndCheckFile() {
 		displayError "File ${tarball_filename_fullpath} does not exist"
 	fi
 
-	tarball=`basename "${tarball_filename_fullpath}"`
+	tarball=$(basename "${tarball_filename_fullpath}")
 	tarball_filename="${tarball%.*}"
 	tarball_extension="${tarball##*.}"
 	setCompression ${tarball_extension}
@@ -735,8 +735,8 @@ function setAndCheckFile() {
 ##
 function checkFileCopy() {
 	# Received 2 parameters: origin destination
-	origin="${TARBALL_FOLDER}/`basename $1`"
-	destination="${TARBALL_FOLDER}/`basename $2`"
+	origin="${TARBALL_FOLDER}/$(basename "$1")"
+	destination="${TARBALL_FOLDER}/$(basename "$2")"
 	if [ ! -f "$origin" ]; then
 		displayError "Origin file $(basename $origin) does not exist"
 	elif [ -f "$destination" ]; then
@@ -748,7 +748,7 @@ function checkFileCopy() {
 # @brief Creates a temporary folder for operations.
 ##
 function createTMPFolder() {
-	handleCommand "tmp_folder=`mktemp -d -t \"tmp.${tarball_filename}.XXXXXXXX\"`" "Creating temporary folder"
+	handleCommand "tmp_folder=$(mktemp -d -t \"tmp.${tarball_filename}.XXXXXXXX\")" "Creating temporary folder"
 }
 
 ##
@@ -1051,7 +1051,7 @@ function extractArchive() {
 	if [ "$#" -eq 0 ]; then
 		text="Extracting system files from ${tarball}"
 	else
-		text="Rebasing `basename $1` using system files from ${tarball}"
+		text="Rebasing $(basename "$1") using system files from ${tarball}"
 	fi
 	cd "${tmp_folder}"
 	handleCommandWithOutput "pv ${tarball_filename_fullpath} | ${extract} | ${tar_decompress}" "${text}"
@@ -1109,7 +1109,7 @@ function compressArchive() {
 function unpackCache() {
 	if [ "${USE_CCACHE}" == "YES" ] && [ "${USE_CCACHE_FILE}" == "YES" ]; then
 		if [ -f "${ccache_file}" ]; then
-			local prev_folder=`pwd`
+			local prev_folder=$(pwd)
 			cd "${tmp_folder}${CCACHE_DIR}"
 			handleCommandWithOutput "pv ${ccache_file} | ${bzip2} -d - | ${tar_decompress}" "Extracting CCache data..."
 			cd "${prev_folder}"
@@ -1120,7 +1120,7 @@ function unpackCache() {
 	fi
 	if [ "${USE_SCCACHE}" == "YES" ] && [ "${USE_SCCACHE_FILE}" == "YES" ]; then
 		if [ -f "${sccache_file}" ]; then
-			local prev_folder=`pwd`
+			local prev_folder=$(pwd)
 			cd "${tmp_folder}${SCCACHE_DIR}"
 			handleCommandWithOutput "pv ${sccache_file} | ${bzip2} -d - | ${tar_decompress}" "Extracting Sccache data..."
 			cd "${prev_folder}"
@@ -1136,7 +1136,7 @@ function unpackCache() {
 ##
 function saveCache() {
 	if [ "${USE_CCACHE}" == "YES" ] && [ "${USE_CCACHE_FILE}" == "YES" ]; then
-		local prev_folder=`pwd`
+		local prev_folder=$(pwd)
 		cd "${tmp_folder}${CCACHE_DIR}"
 		handleCommandWithOutput "${tar_compress} | pv -s $(du -sbl . | awk '{print $1}') | ${bzip2} > ${ccache_file}" "Compressing CCache data"
 		printStep "Cleaning CCache contents after save"
@@ -1150,7 +1150,7 @@ function saveCache() {
 		cd "${prev_folder}"
 	fi
 	if [ "${USE_SCCACHE}" == "YES" ] && [ "${USE_SCCACHE_FILE}" == "YES" ]; then
-		local prev_folder=`pwd`
+		local prev_folder=$(pwd)
 		cd "${tmp_folder}${SCCACHE_DIR}"
 		handleCommandWithOutput "${tar_compress} | pv -s $(du -sbl . | awk '{print $1}') | ${bzip2} > ${sccache_file}" "Compressing Sccache data"
 		printStep "Cleaning Sccache contents after save"
@@ -1210,8 +1210,8 @@ function doList() {
 	printf "  ${_CLR_BOLD_CYAN}%-5s  %-10s  %s${_CLR_RESET}\n" "Index" "Size" "File Name"
 	printf "  ${_CLR_DIM}─────  ──────────  ──────────────────────────────────────────${_CLR_RESET}\n"
 	for i in "${!file_list[@]}"; do
-		tarball_filename=`basename ${file_list[$i]}`
-		local size=`ls -s --block-size=1048576 "${file_list[$i]}" | cut -d' ' -f1`
+		tarball_filename=$(basename "${file_list[$i]}")
+		local size=$(ls -s --block-size=1048576 "${file_list[$i]}" | cut -d' ' -f1)
 		local size_str="${size} MiB"
 		local extra=""
 		local row_open="" row_close=""
@@ -1311,7 +1311,7 @@ function doExport() {
 	setAndCheckFile
 	setCompression ${parameters[3]}
 	setDecompression ${tarball_extension}
-	tarball_output="${tarball_output%.*}-`date +%Y%m%d`.${tarball_output##*.}"
+	tarball_output="${tarball_output%.*}-$(date +%Y%m%d).${tarball_output##*.}"
 	if [ -f "${output_folder}/${tarball_output}" ]; then
 		local reply=""
 		while [[ ! $reply =~ ^[YyNn]$ ]]; do
@@ -1359,7 +1359,7 @@ function doDelete() {
 # @brief Renames a tarball file.
 ##
 function doRename() {
-	local new_filename=`basename "${parameters[2]}"`
+	local new_filename=$(basename "${parameters[2]}")
 	setAndCheckFile
 	checkFileCopy "${tarball_filename_fullpath}" "${new_filename}"
 	doLock
@@ -1521,7 +1521,7 @@ function doDownload() {
 	if [ ! -s "${tmp_folder}/${stage_info_file}" ]; then
 		displayError "Failed to download or empty stage info file: ${stage_info_file}"
 	fi
-	stage_file="`grep -m1 '^[^#].*\.tar\.xz' \"${tmp_folder}/${stage_info_file}\" | awk '{print $1}'`"
+	stage_file="$(grep -m1 '^[^#].*\.tar\.xz' "${tmp_folder}/${stage_info_file}" | awk '{print $1}')"
 	if [ -z "${stage_file}" ]; then
 		displayError "Could not parse stage file path from info file: ${stage_info_file}"
 	fi
