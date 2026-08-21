@@ -1,0 +1,593 @@
+.TH STORMBYTE-STAGEMANAGER 1 "August 2026" "StormByte" "User Commands"
+.SH NAME
+StormByte-StageManager \- manage Gentoo stage tarballs, chroots, caches and downloads
+.SH SYNOPSIS
+.B StormByte-StageManager
+[\fICOMMAND\fR] [\fIARGS\fR...]
+.SH DESCRIPTION
+.B StormByte-StageManager
+manages Gentoo stage3 (and similar) environments stored as compressed tarballs.
+It can list stages, enter a chroot, rebase into a new filename, recompress or
+export stages, delete or rename them, download official stage3 images, and
+attach free-form notes.
+.PP
+Temporary work is performed under a configurable storage backend
+.RB ( folder ,
+.BR tmpfs ,
+or
+.BR zram ).
+Optional bind mounts expose host package caches, distfiles, repositories,
+Portage patches and extra paths inside the chroot.
+.PP
+Optional
+.B ccache
+and
+.B sccache
+support can use either a host bind mount or a packed sidecar
+.RI ( ccache.tbz2
+/
+.IR sccache.tbz2 )
+under
+.BR TARBALL_FOLDER .
+In
+.B FILE
+mode the sidecar is expanded into a
+.B shared tmpfs
+workspace so several concurrent
+.B use
+/
+.B rebase
+sessions can share the same hot cache; the
+.B last
+session to exit packs the workspace back into the sidecar
+.B even if
+the user declines saving stage changes.
+.PP
+Inside the chroot, cache environment is injected transparently
+.RB ( CCACHE_DIR ,
+.BR FEATURES+=ccache ,
+.BR SCCACHE_DIR ,
+and related variables) without writing files into the stage tree.
+.PP
+Configuration is read from
+.I StormByte-StageManager.conf
+next to the script, or from
+.IR /etc/conf.d/StormByte-StageManager.conf .
+.SH CONFIGURATION
+.TP
+.I /etc/conf.d/StormByte-StageManager.conf
+Primary system-wide configuration file. A copy next to the executable is also
+accepted (same layout the script searches at startup).
+.PP
+Main variables:
+.TP
+.B TARBALL_FOLDER
+Absolute path where stage tarballs are stored.
+.TP
+.B STORAGE_SYSTEM
+.BR folder ,
+.BR tmpfs ,
+.BR zram ,
+or
+.B auto
+(try zram, then tmpfs, then folder). Explicit values are preferred when set.
+.TP
+.B STORAGE_SIZE
+Size for
+.B tmpfs
+/
+.B zram
+(e.g.
+.BR 20G ,
+.BR 512M ).
+Also used as the default size for shared FILE cache tmpfs workspaces when
+.B CCACHE_TMPFS_SIZE
+/
+.B SCCACHE_TMPFS_SIZE
+are unset.
+.TP
+.B STORAGE_SYSTEM_ZRAM_COMPRESSION_ALGO
+Optional zram algorithm:
+.BR zstd ,
+.BR lz4 ,
+or
+.BR lz4hc .
+Leave empty to leave the kernel default.
+.TP
+.B TARBALL_NOTE_EDITOR
+Editor used by
+.BR "notes edit" .
+.TP
+.B DETACH_NOTE_EDITOR
+.B YES
+to background the editor (useful for GUI editors),
+.B NO
+otherwise.
+.TP
+.B GZIP_COMPRESSION_LEVEL\fR / \fBBZIP_COMPRESSION_LEVEL\fR / \fBXZ_COMPRESSION_LEVEL
+Integer
+.B 1
+to
+.BR 9 .
+.TP
+.B ZSTD_COMPRESSION_LEVEL
+Integer
+.B 1
+to
+.BR 19 .
+.SS Compiler caches (ccache / sccache)
+.TP
+.B USE_CCACHE
+.B YES
+or
+.BR NO .
+If
+.BR YES ,
+exactly one of
+.B USE_CCACHE_BIND
+or
+.B USE_CCACHE_FILE
+must be
+.BR YES .
+.TP
+.B CCACHE_DIR
+Path used as the cache directory inside the stage (and as the host path when
+.BR USE_CCACHE_BIND=YES ).
+.TP
+.B USE_CCACHE_BIND
+Bind-mount the host
+.B CCACHE_DIR
+into the stage. Concurrent sessions share the host directory directly.
+.TP
+.B USE_CCACHE_FILE
+Use the packed sidecar
+.I TARBALL_FOLDER/ccache.tbz2
+via a shared tmpfs workspace (see
+.B SHARED FILE CACHE
+below).
+.TP
+.B USE_SCCACHE
+.B YES
+or
+.BR NO .
+If
+.BR YES ,
+exactly one of
+.B USE_SCCACHE_BIND
+or
+.B USE_SCCACHE_FILE
+must be
+.BR YES .
+.TP
+.B SCCACHE_DIR
+Path used as the sccache directory inside the stage (and as the host path when
+.BR USE_SCCACHE_BIND=YES ).
+.TP
+.B USE_SCCACHE_BIND
+Bind-mount the host
+.B SCCACHE_DIR
+into the stage.
+.TP
+.B USE_SCCACHE_FILE
+Use the packed sidecar
+.I TARBALL_FOLDER/sccache.tbz2
+via a shared tmpfs workspace.
+.TP
+.B SCCACHE_CACHE_SIZE
+Maximum sccache disk budget passed into the chroot (default
+.BR 20G ).
+.SS Other paths and binds
+.TP
+.B PKG_DIR\fR / \fBUSE_PKG_BIND
+Binary package directory and optional bind mount.
+.TP
+.B DISTFILES_DIR\fR / \fBUSE_DISTFILES_BIND
+Distfiles directory and optional bind mount.
+.TP
+.B REPOS_DIR\fR / \fBUSE_REPOS_BIND
+Gentoo repository path and optional bind mount.
+.TP
+.B USE_GENTOO_PATCHES_BIND
+Bind
+.I /etc/portage/patches
+from the host when
+.BR YES
+and the host path exists.
+.TP
+.B EXTRA_BIND_MOUNT
+Semicolon-separated list of absolute host paths to bind into the chroot.
+Protected system roots are rejected.
+.TP
+.B BTRFS_CHECKSUM
+Optional checksum name for virtual filesystems
+.RB ( crc32c ,
+.BR xxhash ,
+.BR sha256 ,
+.BR blake2 ).
+.SH SHARED FILE CACHE
+When
+.B USE_CCACHE_FILE=YES
+and/or
+.B USE_SCCACHE_FILE=YES ,
+each cache type uses a
+.B shared tmpfs
+workspace so multiple concurrent script instances can share one hot cache.
+.PP
+Default workspace roots (overridable via environment):
+.TP
+.B /tmp/StormByte-ccache
+Shared ccache workspace
+.RB ( CCACHE_SHARE_ROOT ).
+.TP
+.B /tmp/StormByte-sccache
+Shared sccache workspace
+.RB ( SCCACHE_SHARE_ROOT ).
+.TP
+.B /tmp/StormByte-cache-locks
+Lock and holder metadata
+.RB ( CACHE_LOCK_DIR ).
+.PP
+Lifecycle per cache type:
+.IP \(bu 3
+The
+.B first
+concurrent session creates the tmpfs (size
+.B CCACHE_TMPFS_SIZE
+/
+.B SCCACHE_TMPFS_SIZE ,
+defaulting to
+.B STORAGE_SIZE
+or
+.BR 8G ),
+unpacks the sidecar
+.I .tbz2
+if it exists, and records itself as a holder.
+.IP \(bu 3
+Later sessions join the same workspace (bind-mount into their stage tree) and
+add themselves to the holder list. Coordination uses
+.B flock
+plus a holders file of live PIDs; dead PIDs are pruned on acquire and release.
+.IP \(bu 3
+On exit, each session removes itself from the holder list. The
+.B last
+session packs the workspace back into
+.I ccache.tbz2
+/
+.I sccache.tbz2
+and unmounts the tmpfs.
+.IP \(bu 3
+Packing is
+.B independent
+of whether the user saves stage tarball changes. Declining
+.RB \(lq Save changes? \(rq
+still persists compiler caches in FILE mode.
+.IP \(bu 3
+For sccache, the background server is stopped before any unmount (the daemon
+holds open files on the cache directory).
+.IP \(bu 3
+Emergency cleanup on
+.BR EXIT / INT / TERM / HUP
+also stops sccache, drops stage-side binds, and runs the last-holder pack path
+when appropriate.
+.PP
+Missing sidecars on first use are not an error: the workspace starts empty and
+is packed on last exit.
+.SH GLOBAL ENVIRONMENT VARIABLES
+.TP
+.B DRY_RUN=1
+Simulate heavy or destructive actions without applying them.
+.TP
+.B FORCE=1
+Skip interactive
+.BR Y / N
+confirmations (delete, overwrite, save prompts still follow script logic where
+applicable).
+.TP
+.B SKIP_CACHE=1
+Skip shared FILE cache acquire/unpack and last-holder pack for this run
+(BIND mode mounts are also skipped where the script gates on this flag).
+.TP
+.B TARBALL_FOLDER=\fI/path\fR
+Override
+.B TARBALL_FOLDER
+for this run.
+.TP
+.B STORAGE_SYSTEM=\fIvalue\fR
+Override storage backend for this run.
+.TP
+.B STORAGE_SIZE=\fIvalue\fR
+Override size for
+.B zram
+/
+.BR tmpfs
+(and default shared cache tmpfs size).
+.TP
+.B CCACHE_SHARE_ROOT=\fI/path\fR
+Override shared ccache tmpfs mountpoint (default
+.IR /tmp/StormByte-ccache ).
+.TP
+.B SCCACHE_SHARE_ROOT=\fI/path\fR
+Override shared sccache tmpfs mountpoint (default
+.IR /tmp/StormByte-sccache ).
+.TP
+.B CACHE_LOCK_DIR=\fI/path\fR
+Override directory for cache lock/holder files (default
+.IR /tmp/StormByte-cache-locks ).
+.TP
+.B CCACHE_TMPFS_SIZE=\fIvalue\fR
+Size of the shared ccache tmpfs (e.g.
+.BR 8G ).
+.TP
+.B SCCACHE_TMPFS_SIZE=\fIvalue\fR
+Size of the shared sccache tmpfs.
+.TP
+.B SCCACHE_CACHE_SIZE=\fIvalue\fR
+sccache budget exported into the chroot (default
+.BR 20G ).
+.SH STAGE SELECTION
+Commands that take a stage accept either:
+.TP
+.B <index>
+Zero-based index as shown by
+.BR list .
+.TP
+.B <filename>
+Basename under
+.BR TARBALL_FOLDER ,
+or an absolute path to an existing stage file.
+.PP
+Recognised extensions:
+.BR tar.gz ,
+.BR tgz ,
+.BR tar.bz2 ,
+.BR tbz2 ,
+.BR tar.xz ,
+.BR txz ,
+.BR tar.zstd ,
+.BR tzd .
+Sidecar files
+.I ccache.tbz2
+and
+.I sccache.tbz2
+are never listed as stages.
+.SH COMPRESSION FORMATS
+.TP
+.B gzip
+Extensions
+.BR tar.gz / tgz ;
+algorithm name
+.BR gzip .
+.TP
+.B bzip2
+Extensions
+.BR tar.bz2 / tbz2 ;
+algorithm name
+.BR bzip2 .
+.TP
+.B xz
+Extensions
+.BR tar.xz / txz ;
+algorithm name
+.BR xz .
+.TP
+.B zstd
+Extensions
+.BR tar.zstd / tzd ;
+algorithm name
+.BR zstd .
+.PP
+Parallel tools are used when present
+.RB ( pigz ,
+.BR lbzip2 ,
+.BR pxz ,
+.BR pzstd ).
+.B pv
+is required for progress during extract/compress/download and FILE cache pack
+paths.
+.SH COMMANDS
+.SS list (alias: ls)
+.TP
+.B list
+List stages in
+.B TARBALL_FOLDER
+with index, size, mtime, and flags for notes and lock files.
+.SS use
+.TP
+.B use \fI<index|filename>
+Lock the stage, extract into temporary storage, apply bind mounts and optional
+caches, enter an interactive chroot, then unmount, clean Portage temporary
+data, optionally save the stage tarball, release shared FILE caches, and unlock.
+.PP
+On exit from the chroot the user is prompted to save
+.B stage
+changes unless
+.B FORCE
+or
+.B DRY_RUN
+alter the flow. Compiler caches in FILE mode are packed by the last concurrent
+session regardless of that answer.
+.PP
+Optional ccache statistics are shown when
+.B USE_CCACHE=YES
+and
+.B ccache
+is available inside the stage. When sccache is enabled, its server is started
+on chroot entry and stopped before unmount.
+.SS rebase
+.TP
+.B rebase \fI<index|filename> <new_file_name>
+Same workflow as
+.BR use ,
+but the stage save target is
+.IR new_file_name
+(compression is taken from its extension). Shared FILE cache behaviour matches
+.BR use .
+.SS convert
+.TP
+.B convert \fI<index|filename> <compression_format>
+Extract and recompress the stage to the chosen format under
+.BR TARBALL_FOLDER .
+Fails if the target name already exists.
+.SS export
+.TP
+.B export \fI<index|filename> <destination_folder> <compression_format>
+Like
+.BR convert ,
+but writes into an existing
+.IR destination_folder .
+The output basename includes the current date
+.RB ( YYYYMMDD ).
+Overwrite requires confirmation unless
+.BR FORCE=1 .
+.SS delete (alias: rm)
+.TP
+.B delete \fI<index|filename>
+Delete the stage file (and notes sidecar if present) after confirmation.
+.SS rename
+.TP
+.B rename \fI<index|filename> <new_file_name>
+Rename the stage within
+.BR TARBALL_FOLDER .
+Notes sidecar is renamed when present.
+.SS download
+.TP
+.B download \fI<arch>\fR [\fIprofile\fR]
+Download an official Gentoo stage3 for the given architecture and profile
+(default profile:
+.BR default ).
+The stage info file is fetched with retries; the tarball is integrity-checked
+against the remote
+.B DIGESTS
+file when available (SHA-512 preferred, else SHA-256).
+.PP
+Supported architectures and profiles match the built-in help
+.RB ( "help download" ).
+.SS notes
+.TP
+.B notes list
+List stages that have a
+.I .notes
+sidecar.
+.TP
+.B notes \fI<index|filename> edit
+Open notes with
+.BR TARBALL_NOTE_EDITOR .
+.TP
+.B notes \fI<index|filename> delete
+Remove the notes file for that stage.
+.SS config
+.TP
+.B config
+Print resolved configuration paths, storage backend, ccache/sccache flags,
+shared workspace roots and sizes, bind mounts, compression levels and relevant
+environment overrides.
+.SS help
+.TP
+.B help
+Show the built-in usage summary.
+.TP
+.B help \fI<command>
+Detailed help for one command.
+.TP
+.B help compression
+Document compression formats and extensions.
+.TP
+.B \-\-version\fR, \fB\-V
+Print program name and version, then exit.
+.SH LOCKING AND CLEANUP
+Per-stage lock files live under
+.I /tmp
+as
+.BI . <tarball-basename> .lock
+and prevent concurrent use of the
+.B same
+stage tarball. Shared FILE caches intentionally allow concurrent sessions
+across stages (or the same stage only if locks were removed by hand).
+.PP
+On
+.BR EXIT ,
+.BR INT ,
+.B TERM
+and
+.BR HUP ,
+the script runs an idempotent emergency cleanup: stop sccache if needed,
+unmount stage-side cache binds, run last-holder shared-cache pack when this
+process was a holder, recursive unmount of the temporary stage tree, optional
+zram reset, removal of partial
+.I .compress
+sidecars, and deletion of the stage lock file.
+.SH EXIT STATUS
+.TP
+.B 0
+Success (including a user-aborted confirmation that takes no action).
+.TP
+.B 1
+Usage error (missing or invalid arguments).
+.TP
+.B 2
+Runtime failure (configuration, I/O, mount, download, or integrity check).
+.SH FILES
+.TP
+.I /etc/conf.d/StormByte-StageManager.conf
+System configuration.
+.TP
+.I TARBALL_FOLDER/*.tgz\fR (and other supported extensions)
+Stage archives.
+.TP
+.I TARBALL_FOLDER/<stage>.notes
+Optional free-form notes.
+.TP
+.I TARBALL_FOLDER/ccache.tbz2
+Packed ccache sidecar when
+.B USE_CCACHE_FILE=YES
+(written by the last concurrent session).
+.TP
+.I TARBALL_FOLDER/sccache.tbz2
+Packed sccache sidecar when
+.B USE_SCCACHE_FILE=YES .
+.TP
+.I /tmp/StormByte-ccache
+Default shared ccache tmpfs workspace.
+.TP
+.I /tmp/StormByte-sccache
+Default shared sccache tmpfs workspace.
+.TP
+.I /tmp/StormByte-cache-locks/
+Lock files and holder lists for shared FILE caches.
+.TP
+.I /tmp/.<stage>.lock
+Per-stage lock file.
+.SH DEPENDENCIES
+.BR bash ,
+.BR tar ,
+.BR pv ,
+.BR curl ,
+.BR find ,
+.BR flock
+(from util-linux),
+and at least one of the configured compressors
+.RB ( gzip / pigz ,
+.BR bzip2 / lbzip2 ,
+.BR xz / pxz ,
+.BR pzstd ).
+Zram backends need
+.B zramctl
+and related kernel support.
+Optional
+.B ccache
+/
+.B sccache
+binaries inside the stage when those features are enabled.
+.SH SEE ALSO
+.BR tar (1),
+.BR chroot (1),
+.BR pv (1),
+.BR curl (1),
+.BR ccache (1),
+.BR sccache (1),
+.BR flock (1),
+.BR zramctl (8)
+.SH AUTHOR
+David C. Manuelda a.k.a StormByte <StormByte@gmail.com>
+.SH COPYRIGHT
+Licensed under the terms of the project license.
