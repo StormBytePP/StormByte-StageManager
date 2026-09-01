@@ -1,4 +1,4 @@
-# Bash completion for StormByte-StageManager
+# Bash completion for StormByte-StageManager 2.0.0
 # Install to: /usr/share/bash-completion/completions/StormByte-StageManager
 
 _sbsm_get_config_value() {
@@ -31,22 +31,22 @@ _sbsm_get_config_value() {
 _sbsm_tarball_folder() {
 	local folder
 	folder="$(_sbsm_get_config_value TARBALL_FOLDER)"
-	# Allow env override used by the script
 	[[ -n "${TARBALL_FOLDER_OVERRIDE:-}" ]] && folder="${TARBALL_FOLDER_OVERRIDE}"
 	[[ -n "${TARBALL_FOLDER:-}" ]] && folder="${TARBALL_FOLDER}"
 	printf '%s' "$folder"
 }
 
-# Space-separated basenames of stages (excludes ccache/sccache sidecars)
+# Relative paths under TARBALL_FOLDER (same set the CLI lists).
+# Sidecars ccache.tbz2 / sccache.tbz2 are never stages.
 _sbsm_stage_names() {
 	local tarball_folder
 	tarball_folder="$(_sbsm_tarball_folder)"
 	[[ -z "$tarball_folder" || ! -d "$tarball_folder" ]] && return
 
-	find "$tarball_folder" -maxdepth 1 -type f \
-		-iregex '.*\.\(tar\.gz\|tgz\|tar\.bz2\|tbz2\|tar\.xz\|txz\|tar\.zstd\|tzd\)$' \
+	find "$tarball_folder" -type f \
+		-iregex '.*\.\(tar\.gz\|tgz\|tgzip\|tar\.bz2\|tbz2\|tbzip2\|tar\.xz\|txz\|tar\.zstd\|tar\.zst\|tzstd\|tzd\)$' \
 		! -name 'ccache.tbz2' ! -name 'sccache.tbz2' \
-		-printf '%f\n' 2>/dev/null | sort
+		-printf '%P\n' 2>/dev/null | sort
 }
 
 _sbsm_get_index_count() {
@@ -66,9 +66,9 @@ _sbsm_index_words() {
 	printf '%s' "$words"
 }
 
-# Index and/or stage basename (what use/rebase/… accept)
 _sbsm_complete_stage() {
-	local idx_words names
+	local idx_words
+	local -a names
 	idx_words="$(_sbsm_index_words)"
 	mapfile -t names < <(_sbsm_stage_names)
 	COMPREPLY=( $(compgen -W "${idx_words} ${names[*]}" -- "$cur") )
@@ -78,8 +78,9 @@ _StormByte_StageManager() {
 	local cur prev words cword
 	_init_completion || return
 
-	local commands="list ls use rebase convert export delete rm rename download help notes config"
+	local commands="list ls use rebase convert export delete rm rename download help notes config --version"
 	local compression_formats="gzip bzip2 xz zstd"
+	local short_exts="tgzip tbzip2 txz tzd"
 	local arches="i486 i686 amd64 x32"
 	local help_topics="list use rebase convert export delete rename download notes config compression"
 	local notes_subcommands="edit delete list"
@@ -90,7 +91,6 @@ _StormByte_StageManager() {
 	local profiles_x32="default"
 
 	local cmd="${words[1]}"
-	# Normalize aliases for the rest of the logic
 	case "$cmd" in
 		ls) cmd="list" ;;
 		rm) cmd="delete" ;;
@@ -106,8 +106,8 @@ _StormByte_StageManager() {
 					_sbsm_complete_stage
 					;;
 				notes)
-					# notes list  |  notes <index|filename> …
-					local idx_words names
+					local idx_words
+					local -a names
 					idx_words="$(_sbsm_index_words)"
 					mapfile -t names < <(_sbsm_stage_names)
 					COMPREPLY=( $(compgen -W "list ${idx_words} ${names[*]}" -- "$cur") )
@@ -122,14 +122,14 @@ _StormByte_StageManager() {
 			;;
 		3)
 			case "$cmd" in
-				rebase|rename)
-					local tarball_folder
-					tarball_folder="$(_sbsm_tarball_folder)"
-					if [[ -n "$tarball_folder" && -d "$tarball_folder" ]]; then
-						local -a tarballs
-						mapfile -t tarballs < <(_sbsm_stage_names)
-						COMPREPLY=( $(compgen -W "${tarballs[*]}" -- "$cur") )
-					fi
+				rebase)
+					COMPREPLY=( $(compgen -W "$short_exts" -- "$cur") )
+					compopt -o nospace 2>/dev/null || true
+					;;
+				rename)
+					local -a tarballs
+					mapfile -t tarballs < <(_sbsm_stage_names)
+					COMPREPLY=( $(compgen -W "${tarballs[*]}" -- "$cur") )
 					;;
 				convert)
 					COMPREPLY=( $(compgen -W "$compression_formats" -- "$cur") )
@@ -144,17 +144,9 @@ _StormByte_StageManager() {
 					COMPREPLY=( $(compgen -W "${!profiles_var}" -- "$cur") )
 					;;
 				notes)
-					# notes <stage> edit|delete  (notes list has no further args)
 					if [[ "${words[2]}" != "list" ]]; then
 						COMPREPLY=( $(compgen -W "edit delete" -- "$cur") )
 					fi
-					;;
-			esac
-			;;
-		4)
-			case "$cmd" in
-				export)
-					COMPREPLY=( $(compgen -W "$compression_formats" -- "$cur") )
 					;;
 			esac
 			;;

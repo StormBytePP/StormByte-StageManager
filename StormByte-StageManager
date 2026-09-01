@@ -5,7 +5,8 @@
 # Manages Gentoo chroot environments from compressed tarballs (list, use,
 # rebase, convert, export, delete, rename, download, notes).
 #
-# Config: /etc/conf.d/StormByte-StageManager.conf  (or alongside this script)
+# Config: loadConfig() from functions.sh — ${workdir}/${self}.conf then
+#         /etc/conf.d/${self}.conf. Keys and defaults stay in the conf file.
 # Author: David C. Manuelda a.k.a StormByte <StormByte@gmail.com>
 # =============================================================================
 set -o pipefail
@@ -13,8 +14,8 @@ set -o pipefail
 # -----------------------------------------------------------------------------
 # Version requirements
 # -----------------------------------------------------------------------------
-readonly STORMBYTE_STAGEMANAGER_VERSION="1.0.0"
-readonly REQUIRE_STORMBYTE_FUNCTIONS="1.2.0"
+readonly STORMBYTE_STAGEMANAGER_VERSION="2.0.0"
+readonly REQUIRE_STORMBYTE_FUNCTIONS="1.3.0"
 
 # Exit codes
 readonly E_OK=0
@@ -48,10 +49,13 @@ loadConfig
 [[ -n "${TARBALL_FOLDER_OVERRIDE:-}" ]] && TARBALL_FOLDER="${TARBALL_FOLDER_OVERRIDE}"
 [[ -n "${STORAGE_SYSTEM_OVERRIDE:-}" ]] && STORAGE_SYSTEM="${STORAGE_SYSTEM_OVERRIDE}"
 [[ -n "${STORAGE_SIZE_OVERRIDE:-}" ]] && STORAGE_SIZE="${STORAGE_SIZE_OVERRIDE}"
+[[ -n "${TARBALL_FOLDER:-}" ]] && TARBALL_FOLDER="$(path_normalize "${TARBALL_FOLDER}")"
 
 DRY_RUN="${DRY_RUN:-0}"
 FORCE="${FORCE:-0}"
 SKIP_CACHE="${SKIP_CACHE:-0}"
+# functions.sh confirm_yes honours CONFIRM=1, not FORCE.
+[[ "${FORCE}" == "1" ]] && CONFIRM=1
 
 # -----------------------------------------------------------------------------
 # Identity / constants
@@ -70,6 +74,7 @@ tarball_filename=""
 tarball_extension=""
 tarball=""
 tarball_output=""
+tarball_format=""
 compress=""
 extract=""
 tmp_folder=""
@@ -87,8 +92,12 @@ _phase_t0=0
 _cache_released=0
 _ccache_holder=0
 _sccache_holder=0
+_did_lock=0
+_did_tmp=0
+_did_zram=0
+_partial_path=""
+_owned_artifacts=()
 
-# Shared FILE workspaces (tmpfs). Last concurrent session packs the .tbz2 sidecar.
 CCACHE_SHARE_ROOT="${CCACHE_SHARE_ROOT:-/tmp/StormByte-ccache}"
 SCCACHE_SHARE_ROOT="${SCCACHE_SHARE_ROOT:-/tmp/StormByte-sccache}"
 CACHE_LOCK_DIR="${CACHE_LOCK_DIR:-/tmp/StormByte-cache-locks}"
@@ -120,8 +129,25 @@ fi
 zstd="pzstd -${ZSTD_COMPRESSION_LEVEL}q -c"
 
 # -----------------------------------------------------------------------------
-# Emergency cleanup (EXIT / INT / TERM / HUP) — idempotent
+# Emergency cleanup
 # -----------------------------------------------------------------------------
+
+# @brief Unmount path if it is a mountpoint. Best-effort; never aborts the trap.
+# @param $1 Absolute path that may be mounted.
+# @note To be moved to functions.sh (generic umount helper).
+_umount_path() {
+	local p="$1"
+	[[ -n "${p}" ]] || return 0
+	mountpoint -q "${p}" 2>/dev/null || return 0
+	umount "${p}" 2>/dev/null || umount -l "${p}" 2>/dev/null || true
+}
+
+# @brief Idempotent EXIT/INT/TERM/HUP handler for this process only.
+# @note Drops stage binds, releases FILE-cache holders (last packer), umounts
+#       the tmp tree, resets zram iff this PID created it and the mount is
+#       gone, deletes a stream .partial, then drops the stage lock.
+#       Does not rm -rf a directory that is still a mountpoint.
+#       list/help/config leave every inventory flag at 0 so this is a no-op.
 emergency_cleanup() {
 	[[ "${_cleanup_done}" -eq 1 ]] && return 0
 	_cleanup_done=1
@@ -129,44 +155,121 @@ emergency_cleanup() {
 
 	cd "${current_folder}" 2>/dev/null || true
 
-	# sccache keeps files open on the cache dir — stop before any umount
 	stop_sccache_server 2>/dev/null || true
 
-	# Drop stage-side cache binds before wiping the stage tree
 	if [[ -n "${tmp_folder:-}" ]]; then
-		if [[ -n "${CCACHE_DIR:-}" ]] && mountpoint -q "${tmp_folder}${CCACHE_DIR}" 2>/dev/null; then
-			umount "${tmp_folder}${CCACHE_DIR}" 2>/dev/null || umount -l "${tmp_folder}${CCACHE_DIR}" 2>/dev/null || true
+		_umount_path "${tmp_folder}${CCACHE_DIR:-}"
+		_umount_path "${tmp_folder}${SCCACHE_DIR:-}"
+		_umount_path "${tmp_folder}${PKG_DIR:-}"
+		_umount_path "${tmp_folder}${DISTFILES_DIR:-}"
+		_umount_path "${tmp_folder}${REPOS_DIR:-}"
+		_umount_path "${tmp_folder}/etc/portage/patches"
+		if [[ -n "${EXTRA_BIND_MOUNT:-}" ]]; then
+			local saved_ifs="${IFS}" mount_path
+			IFS=';' read -ra extra_mounts <<< "${EXTRA_BIND_MOUNT}"
+			IFS="${saved_ifs}"
+			for mount_path in "${extra_mounts[@]}"; do
+				[[ -z "${mount_path}" ]] && continue
+				_umount_path "${tmp_folder}${mount_path}"
+			done
 		fi
-		if [[ -n "${SCCACHE_DIR:-}" ]] && mountpoint -q "${tmp_folder}${SCCACHE_DIR}" 2>/dev/null; then
-			umount "${tmp_folder}${SCCACHE_DIR}" 2>/dev/null || umount -l "${tmp_folder}${SCCACHE_DIR}" 2>/dev/null || true
-		fi
+		_umount_path "${tmp_folder}/proc"
+		_umount_path "${tmp_folder}/dev"
+		_umount_path "${tmp_folder}/sys"
+		_umount_path "${tmp_folder}/run"
 	fi
 
-	# Last FILE holder packs sidecars (independent of stage save)
 	cache_release 2>/dev/null || true
 
-	if [[ -n "${tmp_folder:-}" && -d "${tmp_folder}" ]]; then
-		umount -Rl "${tmp_folder}" 2>/dev/null || true
-		rm -Rf "${tmp_folder}" 2>/dev/null || true
-		tmp_folder=""
+	if [[ "${_did_tmp}" -eq 1 && -n "${tmp_folder:-}" && -d "${tmp_folder}" ]]; then
+		if mountpoint -q "${tmp_folder}" 2>/dev/null; then
+			umount -Rl "${tmp_folder}" 2>/dev/null || umount -l "${tmp_folder}" 2>/dev/null || true
+		fi
+		if mountpoint -q "${tmp_folder}" 2>/dev/null; then
+			warn "tmp tree still mounted — not removing ${tmp_folder}"
+		else
+			rm -Rf "${tmp_folder}" 2>/dev/null || true
+			tmp_folder=""
+			_did_tmp=0
+		fi
 	fi
-	if [[ "${STORAGE_SYSTEM:-}" == "zram" && -n "${zram_device:-}" ]]; then
-		sync 2>/dev/null || true
-		echo 1 > "/sys/block/${zram_device}/reset" 2>/dev/null || true
+
+	if [[ "${_did_zram}" -eq 1 && -n "${zram_device:-}" ]]; then
+		if [[ -n "${tmp_folder:-}" ]] && mountpoint -q "${tmp_folder}" 2>/dev/null; then
+			warn "zram still busy — skip reset of ${zram_device}"
+		else
+			sync 2>/dev/null || true
+			echo 1 > "/sys/block/${zram_device}/reset" 2>/dev/null || true
+			_did_zram=0
+		fi
+	fi
+
+	if [[ -n "${_partial_path:-}" && -e "${_partial_path}" ]]; then
+		rm -f "${_partial_path}" 2>/dev/null || true
+		_partial_path=""
 	fi
 	if [[ -n "${output_folder:-}" && -n "${tarball_output:-}" ]]; then
 		rm -f "${output_folder}/.${tarball_output}.compress" 2>/dev/null || true
 	fi
-	if [[ -n "${lockfile:-}" && -f "${lockfile}" ]]; then
+
+	if [[ "${_did_lock}" -eq 1 && -n "${lockfile:-}" && -f "${lockfile}" ]]; then
 		rm -f "${lockfile}" 2>/dev/null || true
+		_did_lock=0
 	fi
 }
 
 trap emergency_cleanup EXIT INT TERM HUP
 
 # -----------------------------------------------------------------------------
+# Privileges
+# -----------------------------------------------------------------------------
+
+# @brief Re-exec this script via sudo -E when use/rebase need mounts/chroot.
+# @note Preserves DRY_RUN FORCE SKIP_CACHE TARBALL_FOLDER via -E.
+#       Does not drop euid inside the chroot. Artifact ownership is restored
+#       with SUDO_UID/SUDO_GID after writes.
+require_root() {
+	if [[ "${EUID}" -eq 0 ]]; then
+		return 0
+	fi
+	if command -v sudo >/dev/null 2>&1; then
+		info "Privileges" "re-exec via sudo -E"
+		exec sudo -E -- "${BASH_SOURCE[0]}" "${parameters[@]}"
+	fi
+	displayError "needs root (chroot/mounts). Install sudo or run as root."
+}
+
+# @brief chown a path to the sudo caller when we were re-exec'd.
+# @param $1 Path that this process just created or replaced.
+chown_artifact() {
+	local path="$1"
+	[[ -n "${path}" && -e "${path}" ]] || return 0
+	[[ -n "${SUDO_UID:-}" && -n "${SUDO_GID:-}" ]] || return 0
+	chown "${SUDO_UID}:${SUDO_GID}" "${path}" 2>/dev/null || true
+}
+
+# @brief Remember a path written by this process and chown it if under sudo.
+# @param $1 Path.
+remember_artifact() {
+	local path="$1"
+	[[ -n "${path}" ]] || return 0
+	_owned_artifacts+=("${path}")
+	chown_artifact "${path}"
+}
+
+# @brief chown every remembered artifact (end of use/rebase).
+chown_owned_artifacts() {
+	local p
+	for p in "${_owned_artifacts[@]+"${_owned_artifacts[@]}"}"; do
+		chown_artifact "${p}"
+	done
+}
+
+# -----------------------------------------------------------------------------
 # UI
 # -----------------------------------------------------------------------------
+
+# @brief Print the banner with the running version.
 display_header() {
 	printf '\n'
 	printf "  ${_CLR_BOLD_CYAN}┌────────────────────────────────────────────────────┐${_CLR_RESET}\n"
@@ -177,6 +280,7 @@ display_header() {
 	printf '\n'
 }
 
+# @brief Built-in usage (no arguments / unknown command / help).
 display_usage() {
 	cat <<EOF
 ${_CLR_BOLD_WHITE}Description${_CLR_RESET}
@@ -188,10 +292,10 @@ ${_CLR_BOLD_WHITE}Usage${_CLR_RESET}
 
 ${_CLR_BOLD_WHITE}Commands${_CLR_RESET}
 	${_CLR_BOLD_GREEN}list${_CLR_RESET} (ls)     List stages (index, size, mtime, notes, lock)
-	${_CLR_BOLD_GREEN}use${_CLR_RESET}           Enter chroot for a stage (index or filename)
-	${_CLR_BOLD_GREEN}rebase${_CLR_RESET}        Use stage, save to a new filename
-	${_CLR_BOLD_GREEN}convert${_CLR_RESET}       Recompress a stage
-	${_CLR_BOLD_GREEN}export${_CLR_RESET}        Recompress into another folder
+	${_CLR_BOLD_GREEN}use${_CLR_RESET}           Enter chroot for a stage (index or filename) [root]
+	${_CLR_BOLD_GREEN}rebase${_CLR_RESET}        Use stage, save to a new filename [root]
+	${_CLR_BOLD_GREEN}convert${_CLR_RESET}       Recompress a stage (stream; copy if same codec)
+	${_CLR_BOLD_GREEN}export${_CLR_RESET}        Stream to <dir>/<stem>-YYYYMMDD.txz
 	${_CLR_BOLD_GREEN}delete${_CLR_RESET} (rm)   Delete a stage
 	${_CLR_BOLD_GREEN}rename${_CLR_RESET}        Rename a stage
 	${_CLR_BOLD_GREEN}download${_CLR_RESET}      Fetch official Gentoo stage3
@@ -201,11 +305,11 @@ ${_CLR_BOLD_WHITE}Commands${_CLR_RESET}
 
 ${_CLR_BOLD_WHITE}Global environment${_CLR_RESET}
 	DRY_RUN=1              Simulate destructive / heavy actions
-	FORCE=1                Skip interactive confirmations
+	FORCE=1                Skip interactive confirmations (sets CONFIRM=1)
 	SKIP_CACHE=1           Skip ccache unpack/pack for this run
 	TARBALL_FOLDER=/path   Override config for this run
-	STORAGE_SYSTEM=…       Override storage backend for this run
-	STORAGE_SIZE=…         Override size for zram/tmpfs
+	STORAGE_SYSTEM=…       Override storage backend (ignored by convert/export)
+	STORAGE_SIZE=…         Override size for zram/tmpfs (ignored by convert/export)
 
 ${_CLR_DIM}→${_CLR_RESET} ${_CLR_BOLD_GREEN}${SCRIPT_NAME} help <command>${_CLR_RESET}
 ${_CLR_DIM}→${_CLR_RESET} ${_CLR_BOLD_GREEN}${SCRIPT_NAME} help compression${_CLR_RESET}
@@ -214,17 +318,22 @@ ${_CLR_DIM}→${_CLR_RESET} ${_CLR_BOLD_GREEN}${SCRIPT_NAME} --version${_CLR_RES
 EOF
 }
 
+# @brief Usage error: message, optional accepted-form, exit E_USAGE.
+# @param $1 Error text.
+# @param $2 Optional accepted syntax.
 usage_error() {
 	err "$1"
 	[[ -n "${2:-}" ]] && printf "  ${_CLR_DIM}Accepted:${_CLR_RESET} %s\n" "$2"
 	exit "${E_USAGE}"
 }
 
+# @brief Start a wall-clock timer for a multi-step phase.
 phase_start() {
-	# Timer only — step line is printed by handleCommand / handleCommandWithOutput
 	_phase_t0="$(date +%s)"
 }
 
+# @brief End the current phase and print elapsed seconds.
+# @param $1 Short label.
 phase_end() {
 	local now label="${1:-done}"
 	now="$(date +%s)"
@@ -232,34 +341,19 @@ phase_end() {
 	printf "  ${_CLR_BOLD_GREEN}✓ OK${_CLR_RESET} ${_CLR_DIM}│${_CLR_RESET} %s (%ss)\n" "${label}" "${elapsed}"
 }
 
+# @brief Abort unless pv is on PATH (extract / stream / download progress).
 require_pv() {
-	if ! command -v pv >/dev/null 2>&1; then
-		displayError "pv is required (declared as a package dependency)"
-	fi
+	require_cmd pv
 }
 
-confirm_yes() {
-	# $1 = prompt message. Returns 0 if yes. FORCE=1 skips prompt.
-	local prompt="$1"
-	if [[ "${FORCE}" == "1" ]]; then
-		return 0
-	fi
-	local reply=""
-	while [[ ! $reply =~ ^[YyNn]$ ]]; do
-		printf "  ${_CLR_BOLD_YELLOW}%s${_CLR_RESET}  [${_CLR_BOLD_GREEN}Y${_CLR_RESET}/${_CLR_BOLD_RED}N${_CLR_RESET}]: " "${prompt}"
-		read -r
-		reply=$REPLY
-	done
-	[[ $reply =~ ^[Yy]$ ]]
-}
-
+# @brief Warn if free space under a path looks smaller than STORAGE_SIZE (or 5G).
+# @param $1 Directory to measure (default TARBALL_FOLDER).
 check_free_space() {
-	# Best-effort: warn if free space under TARBALL_FOLDER looks low (< STORAGE_SIZE or 5G)
 	local target="${1:-${TARBALL_FOLDER}}"
 	local avail_kb
 	avail_kb="$(df -Pk "${target}" 2>/dev/null | awk 'NR==2 {print $4}')"
 	[[ -z "${avail_kb}" ]] && return 0
-	local need_kb=5242880 # 5 GiB default
+	local need_kb=5242880
 	if [[ "${STORAGE_SIZE}" =~ ^([0-9]+)G$ ]]; then
 		need_kb=$(( ${BASH_REMATCH[1]} * 1024 * 1024 ))
 	elif [[ "${STORAGE_SIZE}" =~ ^([0-9]+)M$ ]]; then
@@ -273,60 +367,77 @@ check_free_space() {
 # -----------------------------------------------------------------------------
 # Help
 # -----------------------------------------------------------------------------
+
+# @brief help list
 help_list() {
 	printf "  ${_CLR_BOLD_WHITE}Usage${_CLR_RESET}\n"
 	printf "    ${_CLR_BOLD_GREEN}%s list${_CLR_RESET}\n\n" "${SCRIPT_NAME}"
 	printf "    Lists stages in ${_CLR_CYAN}%s${_CLR_RESET}\n" "${TARBALL_FOLDER}"
 	printf "    Columns: index, size, mtime, flags (notes/lock), filename.\n"
-	printf "    Other commands accept ${_CLR_YELLOW}index${_CLR_RESET} or ${_CLR_YELLOW}filename${_CLR_RESET}.\n\n"
+	printf "    Other commands accept ${_CLR_YELLOW}index${_CLR_RESET} or ${_CLR_YELLOW}filename${_CLR_RESET}.\n"
+	printf "    Does not require root.\n\n"
 }
 
+# @brief help use
 help_use() {
 	printf "  ${_CLR_BOLD_WHITE}Usage${_CLR_RESET}\n"
 	printf "    ${_CLR_BOLD_GREEN}%s use${_CLR_RESET} ${_CLR_YELLOW}<index|filename>${_CLR_RESET}\n\n" "${SCRIPT_NAME}"
 	printf "    Extract stage, bind mounts, enter chroot, optionally save on exit.\n"
+	printf "    Requires root (re-execs via sudo -E if needed).\n"
 	printf "    SKIP_CACHE=1 skips shared FILE cache acquire/pack for this run.\n"
 	printf "    FILE caches use a shared tmpfs; the last session packs ccache.tbz2 / sccache.tbz2\n"
 	printf "    even if stage changes are not saved.\n\n"
 }
 
+# @brief help rebase
 help_rebase() {
 	printf "  ${_CLR_BOLD_WHITE}Usage${_CLR_RESET}\n"
 	printf "    ${_CLR_BOLD_GREEN}%s rebase${_CLR_RESET} ${_CLR_YELLOW}<index|filename> <new_file_name>${_CLR_RESET}\n\n" "${SCRIPT_NAME}"
 	printf "    Like use, but saves to a new tarball name (extension selects compression).\n"
+	printf "    Requires root (re-execs via sudo -E if needed).\n"
 	printf "    See ${_CLR_BOLD_GREEN}%s help compression${_CLR_RESET}.\n\n" "${SCRIPT_NAME}"
 }
 
+# @brief help convert
 help_convert() {
 	printf "  ${_CLR_BOLD_WHITE}Usage${_CLR_RESET}\n"
 	printf "    ${_CLR_BOLD_GREEN}%s convert${_CLR_RESET} ${_CLR_YELLOW}<index|filename> <compression_format>${_CLR_RESET}\n\n" "${SCRIPT_NAME}"
-	printf "    Recompress stage in place (errors if target name already exists).\n\n"
+	printf "    Recompress without extracting the tree (stream).\n"
+	printf "    Same codec as the source → copy (reflink when possible).\n"
+	printf "    Writes .tgzip / .tbzip2 / .txz / .tzd next to the original.\n"
+	printf "    Ignores STORAGE_SYSTEM / STORAGE_SIZE. Does not require root.\n\n"
 }
 
+# @brief help export
 help_export() {
 	printf "  ${_CLR_BOLD_WHITE}Usage${_CLR_RESET}\n"
-	printf "    ${_CLR_BOLD_GREEN}%s export${_CLR_RESET} ${_CLR_YELLOW}<index|filename> <dest_folder> <compression_format>${_CLR_RESET}\n\n" "${SCRIPT_NAME}"
-	printf "    Like convert, but writes into an existing destination folder.\n"
-	printf "    Output name includes the current date.\n\n"
+	printf "    ${_CLR_BOLD_GREEN}%s export${_CLR_RESET} ${_CLR_YELLOW}<index|filename> <dest_folder>${_CLR_RESET}\n\n" "${SCRIPT_NAME}"
+	printf "    Same stream path as convert. Always xz, name <stem>-YYYYMMDD.txz.\n"
+	printf "    Destination folder must exist. Ignores STORAGE_*. Does not require root.\n\n"
 }
 
+# @brief help delete
 help_delete() {
 	printf "  ${_CLR_BOLD_WHITE}Usage${_CLR_RESET}\n"
 	printf "    ${_CLR_BOLD_GREEN}%s delete${_CLR_RESET} ${_CLR_YELLOW}<index|filename>${_CLR_RESET}\n\n" "${SCRIPT_NAME}"
-	printf "    Permanently deletes the stage. Confirm with Y unless FORCE=1.\n\n"
+	printf "    Permanently deletes the stage. Confirm with Y unless FORCE=1.\n"
+	printf "    Does not require root if the folder is writable.\n\n"
 }
 
+# @brief help rename
 help_rename() {
 	printf "  ${_CLR_BOLD_WHITE}Usage${_CLR_RESET}\n"
 	printf "    ${_CLR_BOLD_GREEN}%s rename${_CLR_RESET} ${_CLR_YELLOW}<index|filename> <new_file_name>${_CLR_RESET}\n\n" "${SCRIPT_NAME}"
 	printf "    Renames the stage within ${_CLR_CYAN}%s${_CLR_RESET}.\n\n" "${TARBALL_FOLDER}"
 }
 
+# @brief help download
 help_download() {
 	printf "  ${_CLR_BOLD_WHITE}Usage${_CLR_RESET}\n"
 	printf "    ${_CLR_BOLD_GREEN}%s download${_CLR_RESET} ${_CLR_YELLOW}<arch> [profile]${_CLR_RESET}\n\n" "${SCRIPT_NAME}"
 	printf "    Downloads a Gentoo stage3 (checksum verified when DIGESTS is available).\n"
-	printf "    Default profile: ${_CLR_CYAN}default${_CLR_RESET}. Retries transient network failures.\n\n"
+	printf "    Default profile: ${_CLR_CYAN}default${_CLR_RESET}. Retries transient network failures.\n"
+	printf "    Does not require root if TARBALL_FOLDER is writable.\n\n"
 	printf "  ${_CLR_BOLD_WHITE}i486${_CLR_RESET}     default\n"
 	printf "  ${_CLR_BOLD_WHITE}i686${_CLR_RESET}     default  hardened  systemd  uclibc-hardened  uclibc-vanilla\n"
 	printf "  ${_CLR_BOLD_WHITE}amd64${_CLR_RESET}    default  hardened  nomultilib  systemd\n"
@@ -335,6 +446,7 @@ help_download() {
 	printf "  ${_CLR_BOLD_WHITE}x32${_CLR_RESET}      default\n\n"
 }
 
+# @brief help notes
 help_notes() {
 	printf "  ${_CLR_BOLD_WHITE}Usage${_CLR_RESET}\n"
 	printf "    ${_CLR_BOLD_GREEN}%s notes${_CLR_RESET} ${_CLR_YELLOW}<index|filename> edit|delete${_CLR_RESET}\n" "${SCRIPT_NAME}"
@@ -344,21 +456,26 @@ help_notes() {
 	printf "    list    show stages that have notes\n\n"
 }
 
+# @brief help config
 help_config() {
 	printf "  ${_CLR_BOLD_WHITE}Usage${_CLR_RESET}\n"
 	printf "    ${_CLR_BOLD_GREEN}%s config${_CLR_RESET}\n\n" "${SCRIPT_NAME}"
 	printf "    Prints resolved configuration paths and feature flags.\n\n"
 }
 
+# @brief help compression
 help_compression() {
 	printf "  ${_CLR_BOLD_WHITE}Formats${_CLR_RESET}\n"
-	printf "    gzip  → .tar.gz / .tgz\n"
-	printf "    bzip2 → .tar.bz2 / .tbz2\n"
-	printf "    xz    → .tar.xz / .txz\n"
-	printf "    zstd  → .tar.zst / .tzd\n\n"
-	printf "  Extension of the target name selects the compressor for convert/export/rebase.\n\n"
+	printf "    gzip  → .tgzip   (also reads .tar.gz / .tgz)\n"
+	printf "    bzip2 → .tbzip2  (also reads .tar.bz2 / .tbz2)\n"
+	printf "    xz    → .txz     (also reads .tar.xz)\n"
+	printf "    zstd  → .tzd     (also reads .tzstd / .tar.zst / .tar.zstd)\n\n"
+	printf "  convert takes gzip|bzip2|xz|zstd and writes the short name.\n"
+	printf "  export always writes .txz.\n"
+	printf "  rebase uses the new filename extension.\n\n"
 }
 
+# @brief Dispatch help <topic>. Empty topic prints display_usage.
 cmd_help() {
 	local topic="${parameters[1]:-}"
 	case "${topic}" in
@@ -384,8 +501,301 @@ cmd_help() {
 }
 
 # -----------------------------------------------------------------------------
+# Compression / extensions
+# -----------------------------------------------------------------------------
+
+# @brief Map an archive extension (any accepted alias) to gzip|bzip2|xz|zstd.
+# @param $1 Extension without a leading dot, or a compound like tar.gz.
+# @return 0 and prints the format; 1 if unknown.
+# @note To be moved to functions.sh (generic compressor table).
+format_from_extension() {
+	local ext="$1"
+	case "${ext}" in
+		gz|tar.gz|tgz|tgzip)                 printf 'gzip\n' ;;
+		bz2|tar.bz2|tbz2|tbzip2)             printf 'bzip2\n' ;;
+		xz|tar.xz|txz)                       printf 'xz\n' ;;
+		zst|zstd|tar.zst|tar.zstd|tzd|tzstd) printf 'zstd\n' ;;
+		*) return 1 ;;
+	esac
+}
+
+# @brief Canonical short extension written by convert / default save.
+# @param $1 Format name or alias (gzip, tgzip, zstd, tzd, …).
+# @return 0 and prints tgzip|tbzip2|txz|tzd; 1 if unknown.
+# @note To be moved to functions.sh (pairs with format_from_extension).
+canonical_extension() {
+	case "$1" in
+		gzip|tgzip)     printf 'tgzip\n' ;;
+		bzip2|tbzip2)   printf 'tbzip2\n' ;;
+		xz|txz)         printf 'txz\n' ;;
+		zstd|tzd|tzstd) printf 'tzd\n' ;;
+		*) return 1 ;;
+	esac
+}
+
+# @brief Split a basename into stem + extension and set tarball_format.
+# @param $1 Basename of a stage archive.
+parse_tarball_name() {
+	local name="$1"
+	case "${name}" in
+		*.tar.gz)   tarball_filename="${name%.tar.gz}";   tarball_extension="tar.gz" ;;
+		*.tar.bz2)  tarball_filename="${name%.tar.bz2}";  tarball_extension="tar.bz2" ;;
+		*.tar.xz)   tarball_filename="${name%.tar.xz}";   tarball_extension="tar.xz" ;;
+		*.tar.zstd) tarball_filename="${name%.tar.zstd}"; tarball_extension="tar.zstd" ;;
+		*.tar.zst)  tarball_filename="${name%.tar.zst}";  tarball_extension="tar.zst" ;;
+		*.tgzip)    tarball_filename="${name%.tgzip}";    tarball_extension="tgzip" ;;
+		*.tbzip2)   tarball_filename="${name%.tbzip2}";   tarball_extension="tbzip2" ;;
+		*.tzstd)    tarball_filename="${name%.tzstd}";    tarball_extension="tzstd" ;;
+		*.tzd)      tarball_filename="${name%.tzd}";      tarball_extension="tzd" ;;
+		*.tgz)      tarball_filename="${name%.tgz}";      tarball_extension="tgz" ;;
+		*.tbz2)     tarball_filename="${name%.tbz2}";     tarball_extension="tbz2" ;;
+		*.txz)      tarball_filename="${name%.txz}";      tarball_extension="txz" ;;
+		*)
+			tarball_filename="${name%.*}"
+			tarball_extension="${name##*.}"
+			;;
+	esac
+	tarball_format="$(format_from_extension "${tarball_extension}")" \
+		|| displayError "Unknown format: ${tarball_extension} (gzip|bzip2|xz|zstd / tgzip|tbzip2|txz|tzd|tzstd)"
+}
+
+# @brief Set $compress from an extension. Does not rewrite tarball_output.
+# @param $1 Extension as stored in tarball_extension.
+set_codec_from_extension() {
+	local ext="$1"
+	local fmt
+	fmt="$(format_from_extension "${ext}")" \
+		|| displayError "Unknown format: ${ext} (gzip|bzip2|xz|zstd / tgzip|tbzip2|txz|tzd|tzstd)"
+	tarball_format="${fmt}"
+	case "${fmt}" in
+		gzip)  compress="${gzip}" ;;
+		bzip2) compress="${bzip2}" ;;
+		xz)    compress="${xz}" ;;
+		zstd)  compress="${zstd}" ;;
+	esac
+}
+
+# @brief Set codec from a destination filename (rebase / named save).
+# @param $1 Path or basename whose extension selects the compressor.
+set_compression_from_name() {
+	local name="$1"
+	parse_tarball_name "$(basename "${name}")"
+	set_codec_from_extension "${tarball_extension}"
+}
+
+# @brief Set codec + tarball_output from a convert/export format name.
+# @param $1 gzip|bzip2|xz|zstd or a short alias.
+# @note Writes the canonical short extension. Stem is tarball_filename
+#       (already stripped). Does not extract or mount.
+set_compression() {
+	local fmt="$1"
+	local ext
+	ext="$(canonical_extension "${fmt}")" \
+		|| displayError "Unknown format: ${fmt} (gzip|bzip2|xz|zstd)"
+	case "$(format_from_extension "${ext}")" in
+		gzip)  compress="${gzip}" ;;
+		bzip2) compress="${bzip2}" ;;
+		xz)    compress="${xz}" ;;
+		zstd)  compress="${zstd}" ;;
+	esac
+	tarball_format="$(format_from_extension "${ext}")"
+	tarball_output="${tarball_filename}.${ext}"
+}
+
+# @brief Set $extract (decompress-to-stdout) from an extension.
+# @param $1 Extension alias.
+set_decompression() {
+	local ext="$1"
+	local fmt
+	fmt="$(format_from_extension "${ext}")" \
+		|| displayError "Unknown archive extension: ${ext}"
+	case "${fmt}" in
+		gzip)  extract="gzip -d -c" ;;
+		bzip2) extract="bzip2 -d -c" ;;
+		xz)    extract="xz -d -c" ;;
+		zstd)  extract="zstd -d -c" ;;
+	esac
+}
+
+# -----------------------------------------------------------------------------
+# Stage selection
+# -----------------------------------------------------------------------------
+
+# @brief Rebuild file_list: recursive under TARBALL_FOLDER, shorter paths first.
+# @note Sidecars ccache.tbz2 / sccache.tbz2 are never stages.
+refresh_file_list() {
+	local root
+	root="$(cd "${TARBALL_FOLDER}" && pwd)" \
+		|| displayError "Cannot access TARBALL_FOLDER: ${TARBALL_FOLDER}"
+
+	mapfile -t file_list < <(
+		find "${root}" -type f \
+			-iregex '.*\.\(tar\.gz\|tgz\|tgzip\|tar\.bz2\|tbz2\|tbzip2\|tar\.xz\|txz\|tar\.zstd\|tar\.zst\|tzstd\|tzd\)$' \
+			! -name 'ccache.tbz2' \
+			! -name 'sccache.tbz2' \
+			-print 2>/dev/null \
+		| awk '{ print length, $0 }' \
+		| sort -n \
+		| cut -d' ' -f2-
+	)
+}
+
+# @brief Resolve parameters[1] (or $1) to an existing stage and set codec.
+# @param $1 Optional explicit full path (must exist). Otherwise index|name.
+# @note Calls set_codec + set_decompression. Does NOT call set_compression
+#       (that would rewrite the output name). tarball_output defaults to the
+#       current basename so use can overwrite in place.
+set_and_check_file() {
+	if [[ "$#" -ge 1 && -n "${1:-}" ]]; then
+		tarball_filename_fullpath="$1"
+	else
+		local sel="${parameters[1]:-}"
+		[[ -n "${sel}" ]] || usage_error "Missing stage index or filename" \
+			"${SCRIPT_NAME} <cmd> <index|filename> …"
+
+		if [[ "${sel}" =~ ^[0-9]+$ ]]; then
+			if [[ -z "${file_list[${sel}]:-}" ]]; then
+				displayError "Index ${sel} is out of range (run: ${SCRIPT_NAME} list)"
+			fi
+			tarball_filename_fullpath="${file_list[${sel}]}"
+		else
+			local root candidate="" f
+			root="$(cd "${TARBALL_FOLDER}" && pwd)"
+
+			if [[ "${sel}" == /* && -f "${sel}" ]]; then
+				candidate="${sel}"
+			elif [[ -f "${root}/${sel}" ]]; then
+				candidate="${root}/${sel}"
+			else
+				for f in "${file_list[@]}"; do
+					if [[ "$(basename "${f}")" == "$(basename "${sel}")" ]]; then
+						candidate="${f}"
+						break
+					fi
+				done
+			fi
+
+			[[ -n "${candidate}" && -f "${candidate}" ]] \
+				|| displayError "Stage not found: ${sel}"
+			tarball_filename_fullpath="${candidate}"
+		fi
+	fi
+
+	if [[ ! -f "${tarball_filename_fullpath}" ]]; then
+		displayError "File ${tarball_filename_fullpath} does not exist"
+	fi
+
+	tarball="$(basename "${tarball_filename_fullpath}")"
+	parse_tarball_name "${tarball}"
+	set_codec_from_extension "${tarball_extension}"
+	set_decompression "${tarball_extension}"
+	tarball_output="${tarball}"
+	lockfile="/tmp/.${tarball}.lock"
+	if [[ -z "${tarball_extension}" ]]; then
+		displayError "Tarball extension is empty"
+	fi
+}
+
+# @brief Default output folder is TARBALL_FOLDER (convert; export overrides).
+set_output_folder() {
+	output_folder="${TARBALL_FOLDER}"
+}
+
+# @brief Abort if dest basename already exists under TARBALL_FOLDER.
+# @param $1 Source path.
+# @param $2 Destination basename.
+check_file_copy() {
+	local src="$1" dest_name="$2"
+	[[ -e "${TARBALL_FOLDER}/${dest_name}" ]] && displayError "Target already exists: ${dest_name}"
+	[[ -f "${src}" ]] || displayError "Source missing: ${src}"
+}
+
+# -----------------------------------------------------------------------------
+# Stream recompress (convert / export) — no extract, no STORAGE_* mounts
+# -----------------------------------------------------------------------------
+
+# @brief Copy or stream-recompress src to dest.
+# @param $1 Source archive (absolute).
+# @param $2 Destination archive (absolute).
+# @param $3 Destination format: gzip|bzip2|xz|zstd.
+# @note Same codec → cp --reflink=auto (fallback cp). Different codec →
+#       pv | decompress | compress > dest.partial && mv. Ctrl-C deletes
+#       dest.partial only. Ignores STORAGE_SYSTEM / STORAGE_SIZE.
+#       To be moved to functions.sh once the codec table lives there.
+recompress_stage() {
+	local src="$1" dest="$2" dest_fmt="$3"
+	local src_fmt dest_dir dest_base partial
+	src_fmt="$(format_from_extension "${tarball_extension}")" \
+		|| displayError "Unknown source format: ${tarball_extension}"
+	dest_dir="$(dirname "${dest}")"
+	dest_base="$(basename "${dest}")"
+	[[ -d "${dest_dir}" ]] || displayError "Destination folder does not exist: ${dest_dir}"
+
+	if [[ "${src}" == "${dest}" ]]; then
+		info "Convert" "source and destination are the same file — nothing to do"
+		return 0
+	fi
+	if [[ -e "${dest}" ]]; then
+		displayError "Target ${dest_base} already exists"
+	fi
+
+	if [[ "${DRY_RUN}" == "1" ]]; then
+		if [[ "${src_fmt}" == "${dest_fmt}" ]]; then
+			log "  [dry-run] would copy ${src} → ${dest}"
+		else
+			log "  [dry-run] would stream ${src_fmt} → ${dest_fmt}: ${dest}"
+		fi
+		return 0
+	fi
+
+	partial="${dest_dir}/.${dest_base}.partial"
+	_partial_path="${partial}"
+	rm -f "${partial}"
+
+	phase_start
+	if [[ "${src_fmt}" == "${dest_fmt}" ]]; then
+		printf "  ${_CLR_BOLD_CYAN}◆${_CLR_RESET} ${_CLR_WHITE}Copying %s${_CLR_RESET} ${_CLR_DIM}…${_CLR_RESET}\n" "${dest_base}"
+		if cp --reflink=auto -f "${src}" "${partial}" 2>/dev/null || cp -f "${src}" "${partial}"; then
+			mv -f "${partial}" "${dest}"
+			_partial_path=""
+			remember_artifact "${dest}"
+			phase_end "Copy"
+			return 0
+		fi
+		displayError "Copy failed: ${src} → ${dest}"
+	fi
+
+	set_decompression "${tarball_extension}"
+	case "${dest_fmt}" in
+		gzip)  compress="${gzip}" ;;
+		bzip2) compress="${bzip2}" ;;
+		xz)    compress="${xz}" ;;
+		zstd)  compress="${zstd}" ;;
+		*) displayError "Unknown destination format: ${dest_fmt}" ;;
+	esac
+
+	printf "  ${_CLR_BOLD_CYAN}◆${_CLR_RESET} ${_CLR_WHITE}Streaming %s → %s${_CLR_RESET} ${_CLR_DIM}…${_CLR_RESET}\n" \
+		"${src_fmt}" "${dest_fmt}"
+	if pv "${src}" | ${extract} | ${compress} > "${partial}"; then
+		mv -f "${partial}" "${dest}"
+		_partial_path=""
+		remember_artifact "${dest}"
+		phase_end "Stream"
+		return 0
+	fi
+	rm -f "${partial}"
+	_partial_path=""
+	displayError "Stream recompress failed"
+}
+
+# -----------------------------------------------------------------------------
 # Validation helpers
 # -----------------------------------------------------------------------------
+
+# @brief Parse a size token (512M / 20G) into integer MiB.
+# @param $1 Size string.
+# @return 0 and prints MiB; 1 if the token is not N+M/G.
+# @note To be moved to functions.sh (pairs with human_size).
 size_to_mib() {
 	local s="$1"
 	if [[ "${s}" =~ ^([1-9][0-9]*)([MmGg])$ ]]; then
@@ -400,6 +810,10 @@ size_to_mib() {
 	return 1
 }
 
+# @brief Reject relative paths, traversal, and odd characters in conf paths.
+# @param $1 Variable name (for the error line).
+# @param $2 Absolute path to validate.
+# @return 0 if acceptable; 1 and prints a ✗ line otherwise.
 validate_safe_path() {
 	local var_name="$1"
 	local var_value="$2"
@@ -423,10 +837,13 @@ validate_safe_path() {
 	return 0
 }
 
+# @brief Validate every conf key. STORAGE_SYSTEM=auto is resolved here.
+# @note convert/export never call mount_temp; they still pass this check so
+#       a broken conf fails the same way as use. Sidecar paths are refreshed
+#       after TARBALL_FOLDER is known good. Keys themselves are unchanged.
 check_vars() {
 	local errors=0
 
-	# STORAGE_SYSTEM=auto → try zram, else tmpfs, else folder (still respect explicit values)
 	if [[ "${STORAGE_SYSTEM}" == "auto" ]]; then
 		if [[ -e /dev/zram0 ]] || command -v zramctl >/dev/null 2>&1; then
 			STORAGE_SYSTEM="zram"
@@ -631,7 +1048,6 @@ check_vars() {
 		done
 	fi
 
-	# Refresh sidecar paths after TARBALL_FOLDER is known good
 	ccache_file="${TARBALL_FOLDER}/ccache.tbz2"
 	sccache_file="${TARBALL_FOLDER}/sccache.tbz2"
 
@@ -639,137 +1055,10 @@ check_vars() {
 }
 
 # -----------------------------------------------------------------------------
-# Stage selection
-# -----------------------------------------------------------------------------
-refresh_file_list() {
-	# Same ordering as pre-1.0.0: shorter paths first (awk length | sort -n).
-	# Recursive under TARBALL_FOLDER; full paths in file_list; skip cache sidecars.
-	local root
-	root="$(cd "${TARBALL_FOLDER}" && pwd)" \
-		|| displayError "Cannot access TARBALL_FOLDER: ${TARBALL_FOLDER}"
-
-	mapfile -t file_list < <(
-		find "${root}" -type f \
-			-iregex '.*\.\(tar\.gz\|tgz\|tar\.bz2\|tbz2\|tar\.xz\|txz\|tar\.zstd\|tar\.zst\|tzd\)$' \
-			! -name 'ccache.tbz2' \
-			! -name 'sccache.tbz2' \
-			-print 2>/dev/null \
-		| awk '{ print length, $0 }' \
-		| sort -n \
-		| cut -d' ' -f2-
-	)
-}
-
-set_and_check_file() {
-	# Optional $1 = explicit full path (rebase internal). Else parameters[1] = index|name|relative
-	if [[ "$#" -ge 1 && -n "${1:-}" ]]; then
-		tarball_filename_fullpath="$1"
-	else
-		local sel="${parameters[1]:-}"
-		[[ -n "${sel}" ]] || usage_error "Missing stage index or filename" \
-			"${SCRIPT_NAME} <cmd> <index|filename> …"
-
-		if [[ "${sel}" =~ ^[0-9]+$ ]]; then
-			if [[ -z "${file_list[${sel}]:-}" ]]; then
-				displayError "Index ${sel} is out of range (run: ${SCRIPT_NAME} list)"
-			fi
-			tarball_filename_fullpath="${file_list[${sel}]}"
-		else
-			local root candidate="" f
-			root="$(cd "${TARBALL_FOLDER}" && pwd)"
-
-			# absolute path
-			if [[ "${sel}" == /* && -f "${sel}" ]]; then
-				candidate="${sel}"
-			# relative to TARBALL_FOLDER (e.g. sub/dir/stage.tzd)
-			elif [[ -f "${root}/${sel}" ]]; then
-				candidate="${root}/${sel}"
-			else
-				# basename match among listed stages (first hit)
-				for f in "${file_list[@]}"; do
-					if [[ "$(basename "${f}")" == "$(basename "${sel}")" ]]; then
-						candidate="${f}"
-						break
-					fi
-				done
-			fi
-
-			[[ -n "${candidate}" && -f "${candidate}" ]] \
-				|| displayError "Stage not found: ${sel}"
-			tarball_filename_fullpath="${candidate}"
-		fi
-	fi
-
-	if [[ ! -f "${tarball_filename_fullpath}" ]]; then
-		displayError "File ${tarball_filename_fullpath} does not exist"
-	fi
-
-	tarball="$(basename "${tarball_filename_fullpath}")"
-	case "${tarball}" in
-		*.tar.gz)   tarball_filename="${tarball%.tar.gz}";   tarball_extension="tar.gz" ;;
-		*.tar.bz2)  tarball_filename="${tarball%.tar.bz2}";  tarball_extension="tar.bz2" ;;
-		*.tar.xz)   tarball_filename="${tarball%.tar.xz}";   tarball_extension="tar.xz" ;;
-		*.tar.zstd) tarball_filename="${tarball%.tar.zstd}"; tarball_extension="tar.zstd" ;;
-		*.tar.zst)  tarball_filename="${tarball%.tar.zst}";  tarball_extension="tar.zst" ;;
-		*)
-			tarball_filename="${tarball%.*}"
-			tarball_extension="${tarball##*.}"
-			;;
-	esac
-	set_compression "${tarball_extension}"
-	set_decompression "${tarball_extension}"
-	lockfile="/tmp/.${tarball}.lock"
-	if [[ -z "${tarball_extension}" ]]; then
-		displayError "Tarball extension is empty"
-	fi
-}
-
-set_compression_from_name() {
-	local name="$1"
-	case "${name}" in
-		*.tar.gz|*.tgz)   compress="${gzip}";  tarball_extension="tar.gz" ;;
-		*.tar.bz2|*.tbz2) compress="${bzip2}"; tarball_extension="tar.bz2" ;;
-		*.tar.xz|*.txz)   compress="${xz}";    tarball_extension="tar.xz" ;;
-		*.tar.zst|*.tzd)  compress="${zstd}";  tarball_extension="tar.zst" ;;
-		*) displayError "Unknown compression for: ${name}" ;;
-	esac
-}
-
-set_compression() {
-	local fmt="$1"
-	case "${fmt}" in
-		gzip)  compress="${gzip}";  tarball_output="${tarball_filename%.*}.tar.gz"  ;;
-		bzip2) compress="${bzip2}"; tarball_output="${tarball_filename%.*}.tar.bz2" ;;
-		xz)    compress="${xz}";    tarball_output="${tarball_filename%.*}.tar.xz"  ;;
-		zstd)  compress="${zstd}";  tarball_output="${tarball_filename%.*}.tar.zst" ;;
-		*) displayError "Unknown format: ${fmt} (gzip|bzip2|xz|zstd)" ;;
-	esac
-}
-
-set_decompression() {
-	local ext="$1"
-	case "${ext}" in
-		gz|tar.gz|tgz)   extract="gzip -d -c" ;;
-		bz2|tar.bz2|tbz2) extract="bzip2 -d -c" ;;
-		xz|tar.xz|txz)   extract="xz -d -c" ;;
-		zst|tar.zst|tzd) extract="zstd -d -c" ;;
-		*) displayError "Unknown archive extension: ${ext}" ;;
-	esac
-}
-
-set_output_folder() {
-	output_folder="${TARBALL_FOLDER}"
-}
-
-check_file_copy() {
-	local src="$1" dest_name="$2"
-	[[ -e "${TARBALL_FOLDER}/${dest_name}" ]] && displayError "Target already exists: ${dest_name}"
-	[[ -f "${src}" ]] || displayError "Source missing: ${src}"
-}
-
-# -----------------------------------------------------------------------------
 # Lock
 # -----------------------------------------------------------------------------
+
+# @brief Create /tmp/.<basename>.lock with noclobber. Sets _did_lock for the trap.
 do_lock() {
 	if [[ "${DRY_RUN}" == "1" ]]; then
 		log "  [dry-run] would set lockfile ${lockfile}"
@@ -783,19 +1072,24 @@ do_lock() {
 		printf "  ${_CLR_DIM}If this is an error, manually delete the lockfile.${_CLR_RESET}\n\n"
 		exit "${E_RUNTIME}"
 	fi
+	_did_lock=1
 	printOK
 }
 
+# @brief Remove the stage lock. Trap also does this if _did_lock is set.
 do_unlock() {
 	if [[ "${DRY_RUN}" == "1" ]]; then
 		return 0
 	fi
 	handleCommand "rm -f ${lockfile}" "Removing lockfile"
+	_did_lock=0
 }
 
 # -----------------------------------------------------------------------------
-# Temporary storage
+# Temporary storage (use / rebase / download only — not convert/export)
 # -----------------------------------------------------------------------------
+
+# @brief mktemp -d for the stage tree or download scratch. Sets _did_tmp.
 create_tmp_folder() {
 	if [[ "${DRY_RUN}" == "1" ]]; then
 		tmp_folder="/tmp/dry-run-stage-manager"
@@ -805,21 +1099,31 @@ create_tmp_folder() {
 	printStep "Creating temporary folder"
 	tmp_folder="$(mktemp -d -t "tmp.${tarball_filename:-stage}.XXXXXXXX")" \
 		|| { printFail; displayError "Failed to create temporary folder"; }
+	_did_tmp=1
 	printOK
 	printf "  ${_CLR_DIM}%s${_CLR_RESET}\n" "${tmp_folder}"
 }
 
+# @brief Remove the tmp directory if it is no longer a mountpoint.
 delete_tmp_folder() {
 	[[ -z "${tmp_folder:-}" ]] && return 0
 	if [[ "${DRY_RUN}" == "1" ]]; then
 		return 0
 	fi
+	if mountpoint -q "${tmp_folder}" 2>/dev/null; then
+		warn "tmp tree still mounted — not removing ${tmp_folder}"
+		return 0
+	fi
 	handleCommand "rm -Rf ${tmp_folder}" "Deleting temporary folder"
 	tmp_folder=""
+	_did_tmp=0
 }
 
+# @brief STORAGE_SYSTEM=folder: tmp dir is already the tree.
 mount_folder() { mkdir -p "${tmp_folder}"; }
 
+# @brief Allocate a zram device, ext2, mount on tmp_folder. Fallback tmpfs.
+# @note Sets _did_zram only when this PID actually holds a device.
 mount_zram() {
 	mkdir -p "${tmp_folder}"
 	zram_device_full="$(zramctl -f 2>/dev/null || true)"
@@ -830,6 +1134,7 @@ mount_zram() {
 		mount_tmpfs
 		return 0
 	fi
+	_did_zram=1
 	handleCommand "echo 1 > /sys/block/${zram_device}/reset" "Resetting ZRAM ${zram_device}"
 	if [[ -n "${STORAGE_SYSTEM_ZRAM_COMPRESSION_ALGO:-}" ]]; then
 		handleCommand "printf '%s\n' '${STORAGE_SYSTEM_ZRAM_COMPRESSION_ALGO}' > /sys/block/${zram_device}/comp_algorithm" \
@@ -840,29 +1145,35 @@ mount_zram() {
 	handleCommand "mount -t ext2 -o noatime,nodiratime,discard ${zram_device_full} '${tmp_folder}'" "Mounting ZRAM"
 }
 
+# @brief Mount tmpfs of STORAGE_SIZE on tmp_folder.
 mount_tmpfs() {
 	mkdir -p "${tmp_folder}"
 	handleCommand "mount -t tmpfs -o size=${STORAGE_SIZE} tmpfs ${tmp_folder}" "Mounting tmpfs"
 }
 
+# @brief STORAGE_SYSTEM=folder: just cd back; tree lives in tmp_folder.
 unmount_folder() { cd "${current_folder}"; }
 
+# @brief Umount + reset the zram this PID allocated.
 unmount_zram() {
 	cd "${current_folder}"
 	[[ -z "${tmp_folder:-}" ]] && return 0
 	handleCommand "umount -Rl ${tmp_folder}" "Unmounting ZRAM"
 	handleCommand "rm -Rf ${tmp_folder}" "Clearing ZRAM mountpoint data"
 	handleCommand "sync" "Flushing"
-	if [[ -n "${zram_device:-}" ]]; then
+	if [[ "${_did_zram}" -eq 1 && -n "${zram_device:-}" ]]; then
 		handleCommand "echo 1 > /sys/block/${zram_device}/reset" "Deactivating ${zram_device}"
+		_did_zram=0
 	fi
 }
 
+# @brief Umount the tmpfs on tmp_folder.
 unmount_tmpfs() {
 	cd "${current_folder}"
 	handleCommand "umount -R ${tmp_folder}" "Unmounting tmpfs"
 }
 
+# @brief Dispatch mount by STORAGE_SYSTEM. convert/export must not call this.
 mount_temp() {
 	case "${STORAGE_SYSTEM}" in
 		folder) mount_folder ;;
@@ -871,6 +1182,7 @@ mount_temp() {
 	esac
 }
 
+# @brief Dispatch unmount by STORAGE_SYSTEM.
 unmount_temp() {
 	case "${STORAGE_SYSTEM}" in
 		folder) unmount_folder ;;
@@ -879,15 +1191,180 @@ unmount_temp() {
 	esac
 }
 
+# @brief Remount the stage tree read-only before packing (use/rebase/convert-old).
 readonly_temp() {
 	if [[ "${STORAGE_SYSTEM}" != "folder" ]]; then
 		handleCommand "mount -o remount,ro ${tmp_folder}" "Making stage filesystem readonly"
 	fi
 }
 
+# @brief Pack the extracted tree to output_folder/tarball_output (use/rebase save).
+# @note Writes .name.compress then mv. Trap deletes the partial. After mv,
+#       remember_artifact so sudo callers get SUDO_UID ownership.
+compress_archive() {
+	phase_start
+	cd "${tmp_folder}"
+	_partial_path="${output_folder}/.${tarball_output}.compress"
+	handleCommandWithOutput "${tar_compress} | pv -s \$(du -sbl ${tmp_folder} | awk '{print \$1}') | ${compress} > ${_partial_path}" \
+		"Compressing to ${tarball_output}"
+	mv "${_partial_path}" "${output_folder}/${tarball_output}"
+	_partial_path=""
+	remember_artifact "${output_folder}/${tarball_output}"
+	phase_end "Compress"
+}
+
+# @brief Prompt and pack the stage tarball. Optional $1 = new full path (rebase).
+# @param $1 Optional destination full path. Must not exist yet; codec comes
+#           from that name's extension. Does not require the dest file.
+# @note FILE caches are packed by cache_release regardless of the answer.
+save_changes() {
+	if [[ "${DRY_RUN}" == "1" ]]; then
+		log "  [dry-run] would prompt to save changes"
+		return 0
+	fi
+	if ! confirm_yes "Save changes?"; then
+		readonly_temp
+		printf "  ${_CLR_DIM}No stage changes saved"
+		if [[ "${USE_CCACHE_FILE}" == "YES" || "${USE_SCCACHE_FILE:-NO}" == "YES" ]]; then
+			printf " (compiler caches still persist in FILE mode)"
+		fi
+		printf ".${_CLR_RESET}\n"
+		return 0
+	fi
+	if [[ "$#" -ge 1 && -n "${1:-}" ]]; then
+		output_folder="$(dirname "$1")"
+		tarball_output="$(basename "$1")"
+		set_compression_from_name "${tarball_output}"
+	else
+		output_folder="${TARBALL_FOLDER}"
+		tarball_output="${tarball}"
+		set_codec_from_extension "${tarball_extension}"
+	fi
+	readonly_temp
+	compress_archive
+}
+
+# @brief use: lock, extract, chroot, optional save. Requires root (sudo -E).
+cmd_use() {
+	require_root
+	set_and_check_file
+	check_free_space
+	if [[ "${DRY_RUN}" == "1" ]]; then
+		info "Stage" "${tarball}"
+		info "Storage" "${STORAGE_SYSTEM} ${STORAGE_SIZE:-}"
+		log "  [dry-run] would lock, extract, mount, chroot, save, unlock"
+		return 0
+	fi
+	do_lock
+	create_tmp_folder
+	mount_temp
+	extract_archive
+	mount_pkg
+	mount_distfiles
+	mount_repos
+	mount_gentoo_patches
+	mount_extra_bind_mounts
+	prepare_cache
+	unpack_cache
+	mount_system
+	do_chroot
+	show_ccache_stats
+	show_sccache_stats
+	stop_sccache_server
+	unmount_system
+	unprepare_cache
+	unmount_extra_bind_mounts
+	unmount_gentoo_patches
+	unmount_repos
+	unmount_distfiles
+	unmount_pkg
+	clean_stage
+	save_changes
+	cache_release
+	if [[ -f "${ccache_file}" ]]; then remember_artifact "${ccache_file}"; fi
+	if [[ -f "${sccache_file}" ]]; then remember_artifact "${sccache_file}"; fi
+	chown_owned_artifacts
+	unmount_temp
+	delete_tmp_folder
+	do_unlock
+}
+
+# @brief rebase: same as use, save target is parameters[2] (need not exist).
+cmd_rebase() {
+	require_root
+	[[ -n "${parameters[2]:-}" ]] || usage_error "Missing new filename" \
+		"${SCRIPT_NAME} rebase <index|file> <new_file_name>"
+	set_and_check_file
+	check_free_space
+	if [[ "${DRY_RUN}" == "1" ]]; then
+		log "  [dry-run] would rebase ${tarball} → ${parameters[2]}"
+		return 0
+	fi
+	do_lock
+	create_tmp_folder
+	mount_temp
+	extract_archive
+	mount_pkg
+	mount_distfiles
+	mount_repos
+	mount_gentoo_patches
+	mount_extra_bind_mounts
+	prepare_cache
+	unpack_cache
+	mount_system
+	do_chroot
+	show_ccache_stats
+	show_sccache_stats
+	stop_sccache_server
+	unmount_system
+	unprepare_cache
+	unmount_extra_bind_mounts
+	unmount_gentoo_patches
+	unmount_repos
+	unmount_distfiles
+	unmount_pkg
+	clean_stage
+	save_changes "${TARBALL_FOLDER}/$(basename "${parameters[2]}")"
+	cache_release
+	if [[ -f "${ccache_file}" ]]; then remember_artifact "${ccache_file}"; fi
+	if [[ -f "${sccache_file}" ]]; then remember_artifact "${sccache_file}"; fi
+	chown_owned_artifacts
+	unmount_temp
+	delete_tmp_folder
+	do_unlock
+}
+
+# @brief convert: stream recompress next to the source. No root, no STORAGE_*.
+cmd_convert() {
+	[[ -n "${parameters[2]:-}" ]] || usage_error "Missing compression format" \
+		"${SCRIPT_NAME} convert <index|file> <gzip|bzip2|xz|zstd>"
+	set_and_check_file
+	set_compression "${parameters[2]}"
+	recompress_stage \
+		"${tarball_filename_fullpath}" \
+		"${TARBALL_FOLDER}/${tarball_output}" \
+		"${tarball_format}"
+}
+
+# @brief export: convert fold, always xz, <stem>-YYYYMMDD.txz in dest folder.
+cmd_export() {
+	[[ -n "${parameters[2]:-}" ]] || usage_error "Missing dest folder" \
+		"${SCRIPT_NAME} export <index|file> <dest_folder>"
+	set_and_check_file
+	output_folder="${parameters[2]}"
+	[[ -d "${output_folder}" ]] || displayError "Destination folder does not exist: ${output_folder}"
+	tarball_output="${tarball_filename}-$(date +%Y%m%d).txz"
+	recompress_stage \
+		"${tarball_filename_fullpath}" \
+		"${output_folder}/${tarball_output}" \
+		"xz"
+}
+
 # -----------------------------------------------------------------------------
 # Bind mounts
 # -----------------------------------------------------------------------------
+
+# @brief Bind host PKG_DIR into the stage when USE_PKG_BIND=YES.
 mount_pkg() {
 	mkdir -p "${tmp_folder}${PKG_DIR}"
 	touch "${tmp_folder}${PKG_DIR}/.keep"
@@ -896,6 +1373,7 @@ mount_pkg() {
 	fi
 }
 
+# @brief Bind host DISTFILES_DIR into the stage when USE_DISTFILES_BIND=YES.
 mount_distfiles() {
 	mkdir -p "${tmp_folder}${DISTFILES_DIR}"
 	touch "${tmp_folder}${DISTFILES_DIR}/.keep"
@@ -904,6 +1382,7 @@ mount_distfiles() {
 	fi
 }
 
+# @brief Bind host REPOS_DIR into the stage when USE_REPOS_BIND=YES.
 mount_repos() {
 	mkdir -p "${tmp_folder}${REPOS_DIR}"
 	touch "${tmp_folder}${REPOS_DIR}/.keep"
@@ -912,6 +1391,7 @@ mount_repos() {
 	fi
 }
 
+# @brief Bind host /etc/portage/patches when USE_GENTOO_PATCHES_BIND=YES.
 mount_gentoo_patches() {
 	if [[ "${USE_GENTOO_PATCHES_BIND}" == "YES" ]]; then
 		if [[ ! -d "/etc/portage/patches" ]]; then
@@ -923,6 +1403,7 @@ mount_gentoo_patches() {
 	fi
 }
 
+# @brief Bind each EXTRA_BIND_MOUNT entry (semicolon-separated, already validated).
 mount_extra_bind_mounts() {
 	[[ -z "${EXTRA_BIND_MOUNT:-}" ]] && return 0
 	local saved_ifs="${IFS}" mount_path
@@ -935,21 +1416,25 @@ mount_extra_bind_mounts() {
 	done
 }
 
+# @brief Undo mount_pkg.
 unmount_pkg() {
 	cd "${current_folder}"
 	[[ "${USE_PKG_BIND}" == "YES" ]] && handleCommand "umount ${tmp_folder}${PKG_DIR}" "Unmounting PKG"
 }
 
+# @brief Undo mount_distfiles.
 unmount_distfiles() {
 	cd "${current_folder}"
 	[[ "${USE_DISTFILES_BIND}" == "YES" ]] && handleCommand "umount ${tmp_folder}${DISTFILES_DIR}" "Unmounting distfiles"
 }
 
+# @brief Undo mount_repos.
 unmount_repos() {
 	cd "${current_folder}"
 	[[ "${USE_REPOS_BIND}" == "YES" ]] && handleCommand "umount ${tmp_folder}${REPOS_DIR}" "Unmounting repos"
 }
 
+# @brief Undo mount_gentoo_patches if that path is still a mountpoint.
 unmount_gentoo_patches() {
 	cd "${current_folder}"
 	if [[ "${USE_GENTOO_PATCHES_BIND}" == "YES" ]] \
@@ -959,6 +1444,7 @@ unmount_gentoo_patches() {
 	fi
 }
 
+# @brief Undo mount_extra_bind_mounts for paths that are still mounted.
 unmount_extra_bind_mounts() {
 	cd "${current_folder}"
 	[[ -z "${EXTRA_BIND_MOUNT:-}" ]] && return 0
@@ -976,11 +1462,23 @@ unmount_extra_bind_mounts() {
 # -----------------------------------------------------------------------------
 # Shared FILE cache (tmpfs workspace + refcount; last session packs .tbz2)
 # -----------------------------------------------------------------------------
+
+# @brief Lock file for a named FILE cache (ccache|sccache).
 _cache_lock_path()    { printf '%s/%s.lock' "${CACHE_LOCK_DIR}" "$1"; }
+
+# @brief Live-PID list for a named FILE cache.
 _cache_holders_path() { printf '%s/%s.holders' "${CACHE_LOCK_DIR}" "$1"; }
+
+# @brief Refcount file for a named FILE cache.
 _cache_ref_path()     { printf '%s/%s.ref' "${CACHE_LOCK_DIR}" "$1"; }
 
-# $1=name  $2=share_root  $3=tbz2  $4=tmpfs_size  $5=stage_mountpoint
+# @brief Join (or create) the shared FILE workspace and bind it into the stage.
+# @param $1 name (ccache|sccache)
+# @param $2 share_root tmpfs mountpoint
+# @param $3 sidecar .tbz2 path
+# @param $4 tmpfs size
+# @param $5 path inside the stage tree
+# @note First live session unpacks the sidecar. SKIP_CACHE=1 / DRY_RUN=1 no-op.
 cache_file_acquire_one() {
 	local name="$1" root="$2" tbz2="$3" sz="$4" stage_mp="$5"
 	local lockf holdf refh live pid tmp
@@ -1017,7 +1515,7 @@ cache_file_acquire_one() {
 		if [[ -f "${tbz2}" ]]; then
 			find "${root}" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
 			printf "  ${_CLR_BOLD_CYAN}◆${_CLR_RESET} ${_CLR_WHITE}Unpacking %s into shared workspace${_CLR_RESET} ${_CLR_DIM}…${_CLR_RESET}\n" "${name}"
-			if ( cd "${root}" && pv "${tbz2}" | ${bzip2} -d - | ${tar_decompress} ); then
+			if ( cd "${root}" && pv "${tbz2}" | bzip2 -d -c | ${tar_decompress} ); then
 				printf "  ${_CLR_BOLD_GREEN}✓ OK${_CLR_RESET}\n"
 			else
 				printf "  ${_CLR_BOLD_RED}✗ FAIL${_CLR_RESET}\n"
@@ -1044,7 +1542,8 @@ cache_file_acquire_one() {
 	esac
 }
 
-# $1=name  $2=share_root  $3=tbz2
+# @brief Drop this PID from the holder list; last one packs the sidecar and umounts.
+# @param $1 name  $2 share_root  $3 sidecar path
 cache_file_release_one() {
 	local name="$1" root="$2" tbz2="$3"
 	local lockf holdf refh live pid tmp partial
@@ -1077,15 +1576,19 @@ cache_file_release_one() {
 	if [[ "${live}" -eq 0 ]]; then
 		if mountpoint -q "${root}" 2>/dev/null; then
 			partial="${tbz2}.partial"
+			_partial_path="${partial}"
 			printf "  ${_CLR_BOLD_CYAN}◆${_CLR_RESET} ${_CLR_WHITE}Packing shared %s → %s${_CLR_RESET} ${_CLR_DIM}…${_CLR_RESET}\n" \
 				"${name}" "$(basename "${tbz2}")"
 			if ( cd "${root}" && ${tar_compress} \
 				| pv -s "$(du -sbl . | awk '{print $1}')" \
-				| ${bzip2} > "${partial}" ); then
+				| bzip2 -c > "${partial}" ); then
 				mv -f "${partial}" "${tbz2}"
+				_partial_path=""
+				remember_artifact "${tbz2}"
 				printf "  ${_CLR_BOLD_GREEN}✓ OK${_CLR_RESET}\n"
 			else
 				rm -f "${partial}"
+				_partial_path=""
 				printf "  ${_CLR_BOLD_RED}✗ FAIL${_CLR_RESET}\n"
 				warn "${name} pack failed — shared workspace left mounted for inspection"
 				flock -u 9
@@ -1095,9 +1598,7 @@ cache_file_release_one() {
 			umount "${root}" 2>/dev/null || umount -l "${root}" 2>/dev/null || true
 		fi
 		rm -f "${holdf}" "${refh}" 2>/dev/null || true
-		# Last session: remove empty share root so /tmp does not keep leftovers
 		if [[ -d "${root}" ]] && ! mountpoint -q "${root}" 2>/dev/null; then
-			# Best-effort: only if empty (no stray files)
 			rmdir "${root}" 2>/dev/null \
 				|| rm -rf "${root}" 2>/dev/null \
 				|| true
@@ -1111,13 +1612,12 @@ cache_file_release_one() {
 	return 0
 }
 
-# Idempotent. Safe under trap and normal exit.
+# @brief Release FILE caches this PID holds. Idempotent; safe from the trap.
 cache_release() {
 	[[ "${_cache_released}" -eq 1 ]] && return 0
 	_cache_released=1
 	[[ "${SKIP_CACHE}" == "1" || "${DRY_RUN}" == "1" ]] && return 0
 
-	# sccache first: server must already be stopped (caller/trap responsibility)
 	if [[ "${_sccache_holder}" -eq 1 ]]; then
 		cache_file_release_one "sccache" "${SCCACHE_SHARE_ROOT}" "${sccache_file}" || true
 		_sccache_holder=0
@@ -1127,7 +1627,6 @@ cache_release() {
 		_ccache_holder=0
 	fi
 
-	# If no holders remain for either cache, drop empty lock directory
 	if [[ ! -e "$(_cache_holders_path ccache)" \
 		&& ! -e "$(_cache_holders_path sccache)" \
 		&& ! -e "$(_cache_ref_path ccache)" \
@@ -1140,6 +1639,7 @@ cache_release() {
 	fi
 }
 
+# @brief BIND and/or FILE acquire for ccache/sccache inside the stage tree.
 prepare_cache() {
 	if [[ "${USE_CCACHE}" == "YES" ]]; then
 		mkdir -p "${tmp_folder}${CCACHE_DIR}"
@@ -1167,9 +1667,9 @@ prepare_cache() {
 	fi
 }
 
+# @brief Unmount stage-side cache binds. Shared tmpfs stays until cache_release.
 unprepare_cache() {
 	cd "${current_folder}" 2>/dev/null || true
-	# Unmount stage-side binds only; shared tmpfs stays until last cache_release
 	if [[ "${USE_CCACHE}" == "YES" ]]; then
 		if mountpoint -q "${tmp_folder}${CCACHE_DIR}" 2>/dev/null; then
 			handleCommand "umount ${tmp_folder}${CCACHE_DIR}" "Unmounting ccache from stage" || true
@@ -1182,11 +1682,13 @@ unprepare_cache() {
 	fi
 }
 
+# @brief Mount /proc /dev /sys /run into the stage tree.
 mount_system() {
 	handleCommand "mount -t proc /proc ${tmp_folder}/proc && mount --rbind /dev ${tmp_folder}/dev && mount --make-rslave ${tmp_folder}/dev && mount --rbind /sys ${tmp_folder}/sys && mount --make-rslave ${tmp_folder}/sys && mount --rbind /run ${tmp_folder}/run && mount --make-rslave ${tmp_folder}/run" \
 		"Mounting system structures"
 }
 
+# @brief Unmount system structures (lazy on /run).
 unmount_system() {
 	cd "${current_folder}"
 	handleCommand "umount -Rl ${tmp_folder}/proc && umount -Rl ${tmp_folder}/dev && umount -Rl ${tmp_folder}/sys && umount -l ${tmp_folder}/run" \
@@ -1194,54 +1696,37 @@ unmount_system() {
 }
 
 # -----------------------------------------------------------------------------
-# Archive
+# Archive + chroot
 # -----------------------------------------------------------------------------
+
+# @brief Extract the selected stage into tmp_folder (use/rebase only).
 extract_archive() {
-	local text
-	if [[ "$#" -eq 0 ]]; then
-		text="Extracting ${tarball}"
-	else
-		text="Rebasing $(basename "$1") from ${tarball}"
-	fi
 	phase_start
 	cd "${tmp_folder}"
-	handleCommandWithOutput "pv ${tarball_filename_fullpath} | ${extract} | ${tar_decompress}" "${text}"
+	handleCommandWithOutput "pv ${tarball_filename_fullpath} | ${extract} | ${tar_decompress}" \
+		"Extracting ${tarball}"
 	phase_end "Extract"
 }
 
-compress_archive() {
-	phase_start
-	cd "${tmp_folder}"
-	handleCommandWithOutput "${tar_compress} | pv -s \$(du -sbl ${tmp_folder} | awk '{print \$1}') | ${compress} > ${output_folder}/.${tarball_output}.compress" \
-		"Compressing to ${tarball_output}"
-	mv "${output_folder}/.${tarball_output}.compress" "${output_folder}/${tarball_output}"
-	phase_end "Compress"
-}
-
-# FILE unpack is performed inside cache_file_acquire_one
+# @brief Legacy hook: FILE unpack lives in cache_file_acquire_one.
 unpack_cache() {
 	[[ "${SKIP_CACHE}" == "1" ]] && warn "SKIP_CACHE=1 — shared FILE acquire skipped in prepare_cache"
 	return 0
 }
 
-# FILE pack is only via cache_release (last holder), never tied to stage save
-save_cache() {
-	return 0
-}
+# @brief Legacy hook: FILE pack lives in cache_release.
+save_cache() { return 0; }
 
-# Do not wipe shared workspace contents
-clean_caches() {
-	return 0
-}
+# @brief Legacy hook: do not wipe the shared FILE workspace.
+clean_caches() { return 0; }
 
+# @brief Stop sccache inside the stage and on the host before any umount.
 stop_sccache_server() {
 	[[ "${USE_SCCACHE:-NO}" == "YES" ]] || return 0
-	# Prefer stopping from inside the stage while the tree is still mounted
 	if [[ -n "${tmp_folder:-}" && -x "${tmp_folder}/usr/bin/sccache" ]]; then
 		handleCommand "chroot \"${tmp_folder}\" /usr/bin/env SCCACHE_DIR=\"${SCCACHE_DIR}\" su - portage -s /bin/bash -c '/usr/bin/sccache --stop-server' || chroot \"${tmp_folder}\" /usr/bin/env SCCACHE_DIR=\"${SCCACHE_DIR}\" /usr/bin/sccache --stop-server || true" \
 			"Stopping sccache server" || true
 	fi
-	# Also try host binary against shared workspace (FILE mode) / host dir (BIND)
 	if command -v sccache >/dev/null 2>&1; then
 		local dir="${SCCACHE_DIR}"
 		[[ "${USE_SCCACHE_FILE}" == "YES" ]] && dir="${SCCACHE_SHARE_ROOT}"
@@ -1249,6 +1734,7 @@ stop_sccache_server() {
 	fi
 }
 
+# @brief Print ccache -s from inside the stage when the binary exists.
 show_ccache_stats() {
 	[[ "${USE_CCACHE}" != "YES" ]] && return 0
 	if [[ -n "${tmp_folder:-}" && -x "${tmp_folder}/usr/bin/ccache" ]]; then
@@ -1259,12 +1745,10 @@ show_ccache_stats() {
 	fi
 }
 
+# @brief Print sccache --show-stats (stage binary, else host).
 show_sccache_stats() {
 	[[ "${USE_SCCACHE:-NO}" != "YES" ]] && return 0
-	local sccache_bin=""
 	local env_dir="${SCCACHE_DIR}"
-
-	# Prefer stage binary while tree is still mounted
 	if [[ -n "${tmp_folder:-}" && -x "${tmp_folder}/usr/bin/sccache" ]]; then
 		section "sccache statistics"
 		chroot "${tmp_folder}" /usr/bin/env \
@@ -1274,8 +1758,6 @@ show_sccache_stats() {
 		printf '\n'
 		return 0
 	fi
-
-	# Fallback: host binary (FILE mode share root if needed)
 	if command -v sccache >/dev/null 2>&1; then
 		[[ "${USE_SCCACHE_FILE}" == "YES" ]] && env_dir="${SCCACHE_SHARE_ROOT}"
 		section "sccache statistics"
@@ -1284,6 +1766,7 @@ show_sccache_stats() {
 	fi
 }
 
+# @brief Wipe Portage temp/logs/history and stage-local pkg/distfiles copies.
 clean_stage() {
 	handleCommand "rm -Rf ${tmp_folder}/tmp/* ${tmp_folder}/var/tmp/portage" "Cleaning portage temp"
 	printStep "Cleaning package and distfile caches"
@@ -1293,33 +1776,7 @@ clean_stage() {
 	handleCommand "rm -f ${tmp_folder}/root/.bash_history" "Cleaning history" || true
 }
 
-save_changes() {
-	# Stage tarball only. Compiler caches (FILE mode) are handled by cache_release
-	# and are saved even when the user declines persisting stage changes.
-	if [[ "${DRY_RUN}" == "1" ]]; then
-		log "  [dry-run] would prompt to save changes"
-		return 0
-	fi
-	if ! confirm_yes "Save changes?"; then
-		readonly_temp
-		printf "  ${_CLR_DIM}No stage changes saved"
-		if [[ "${USE_CCACHE_FILE}" == "YES" || "${USE_SCCACHE_FILE:-NO}" == "YES" ]]; then
-			printf " (compiler caches still persist in FILE mode)"
-		fi
-		printf ".${_CLR_RESET}\n"
-		return 0
-	fi
-	if [[ "$#" -ne 0 ]]; then
-		set_and_check_file "${TARBALL_FOLDER}/${parameters[2]}"
-	fi
-	readonly_temp
-	compress_archive
-	if [[ "$#" -ne 0 ]]; then
-		# restore selection context for unlock lockfile name consistency
-		set_and_check_file
-	fi
-}
-
+# @brief Interactive chroot. Injects CCACHE_* / SCCACHE_* / FEATURES+=ccache in-env only.
 do_chroot() {
 	if [[ "${DRY_RUN}" == "1" ]]; then
 		log "  [dry-run] would enter chroot ${tmp_folder}"
@@ -1347,14 +1804,12 @@ do_chroot() {
 		return 0
 	fi
 
-	# Transparent env only — nothing written into the stage tree
 	local -a env_args=()
 	local setup=""
 	local sccache_size="${SCCACHE_CACHE_SIZE:-20G}"
 
 	if [[ "${USE_CCACHE}" == "YES" ]]; then
 		env_args+=( "CCACHE_DIR=${CCACHE_DIR}" )
-		# Config name is CCACHE_CACHE_SIZE; ccache expects CCACHE_MAXSIZE
 		[[ -n "${CCACHE_CACHE_SIZE:-}" ]] && env_args+=( "CCACHE_MAXSIZE=${CCACHE_CACHE_SIZE}" )
 		setup+='export FEATURES="${FEATURES:+${FEATURES} }ccache"; '
 	fi
@@ -1367,7 +1822,6 @@ do_chroot() {
 			"SCCACHE_MAX_FRAME_LENGTH=104857600"
 			"RUSTC_WRAPPER=/usr/bin/sccache"
 		)
-		# Start server as portage (same user Portage uses under userpriv)
 		setup+='if [[ -x /usr/bin/sccache ]]; then
 	su - portage -s /bin/bash -c "SCCACHE_DIR=\"'"${SCCACHE_DIR}"'\" SCCACHE_CACHE_SIZE=\"'"${sccache_size}"'\" SCCACHE_IDLE_TIMEOUT=0 SCCACHE_MAX_FRAME_LENGTH=104857600 /usr/bin/sccache --start-server" 2>/dev/null || true
 fi; '
@@ -1382,6 +1836,8 @@ fi; '
 # -----------------------------------------------------------------------------
 # Download
 # -----------------------------------------------------------------------------
+
+# @brief Resolve arch/profile to Gentoo latest-stage3-*.txt on GENTOO_BASE_URL.
 check_download_parameters() {
 	arch="${parameters[1]:-}"
 	profile="${parameters[2]:-default}"
@@ -1435,8 +1891,8 @@ check_download_parameters() {
 	[[ "${profile_error}" -eq 0 ]] || displayError "Profile '${profile}' not available for '${arch}'"
 }
 
+# @brief curl --fail --location with 3 outer attempts. To be moved to functions.sh.
 curl_retry() {
-	# curl_retry <curl args…>  — up to 3 attempts
 	local attempt=1
 	while [[ "${attempt}" -le 3 ]]; do
 		if curl --fail --location --retry 0 "$@"; then
@@ -1452,6 +1908,8 @@ curl_retry() {
 # -----------------------------------------------------------------------------
 # Commands
 # -----------------------------------------------------------------------------
+
+# @brief List stages under TARBALL_FOLDER (index, size, mtime, notes/lock).
 cmd_list() {
 	if [[ ${#file_list[@]} -eq 0 ]]; then
 		displayError "File list is empty — check ${TARBALL_FOLDER}"
@@ -1467,7 +1925,6 @@ cmd_list() {
 	local i full rel size_bytes size_mib size_str mtime extra row_open row_close base
 	for i in "${!file_list[@]}"; do
 		full="${file_list[$i]}"
-		# Relative to TARBALL_FOLDER (no leading ./)
 		if [[ "${full}" == "${root}/"* ]]; then
 			rel="${full#"${root}/"}"
 		else
@@ -1488,7 +1945,6 @@ cmd_list() {
 		extra=""
 		row_open=""
 		row_close=""
-		# notes sidecar next to the stage file
 		if [[ -f "${full}.notes" ]]; then
 			extra+=" ${_CLR_BOLD_GREEN}[notes]${_CLR_RESET}"
 		fi
@@ -1508,137 +1964,7 @@ cmd_list() {
 	printf '\n'
 }
 
-cmd_use() {
-	set_and_check_file
-	check_free_space
-	if [[ "${DRY_RUN}" == "1" ]]; then
-		info "Stage" "${tarball}"
-		info "Storage" "${STORAGE_SYSTEM} ${STORAGE_SIZE:-}"
-		log "  [dry-run] would lock, extract, mount, chroot, save, unlock"
-		return 0
-	fi
-	do_lock
-	create_tmp_folder
-	mount_temp
-	extract_archive
-	mount_pkg
-	mount_distfiles
-	mount_repos
-	mount_gentoo_patches
-	mount_extra_bind_mounts
-	prepare_cache
-	unpack_cache
-	mount_system
-	do_chroot
-	show_ccache_stats
-	show_sccache_stats
-	stop_sccache_server
-	unmount_system
-	unprepare_cache
-	unmount_extra_bind_mounts
-	unmount_gentoo_patches
-	unmount_repos
-	unmount_distfiles
-	unmount_pkg
-	clean_stage
-	save_changes
-	cache_release
-	unmount_temp
-	delete_tmp_folder
-	do_unlock
-}
-
-cmd_rebase() {
-	[[ -n "${parameters[2]:-}" ]] || usage_error "Missing new filename" \
-		"${SCRIPT_NAME} rebase <index|file> <new_file_name>"
-	set_and_check_file
-	check_free_space
-	if [[ "${DRY_RUN}" == "1" ]]; then
-		log "  [dry-run] would rebase ${tarball} → ${parameters[2]}"
-		return 0
-	fi
-	do_lock
-	create_tmp_folder
-	mount_temp
-	extract_archive "${TARBALL_FOLDER}/${parameters[2]}"
-	mount_pkg
-	mount_distfiles
-	mount_repos
-	mount_gentoo_patches
-	mount_extra_bind_mounts
-	prepare_cache
-	unpack_cache
-	mount_system
-	do_chroot
-	show_ccache_stats
-	show_sccache_stats
-	stop_sccache_server
-	unmount_system
-	unprepare_cache
-	unmount_extra_bind_mounts
-	unmount_gentoo_patches
-	unmount_repos
-	unmount_distfiles
-	unmount_pkg
-	clean_stage
-	save_changes "${TARBALL_FOLDER}/${parameters[2]}"
-	cache_release
-	unmount_temp
-	delete_tmp_folder
-	do_unlock
-}
-
-cmd_convert() {
-	[[ -n "${parameters[2]:-}" ]] || usage_error "Missing compression format" \
-		"${SCRIPT_NAME} convert <index|file> <format>"
-	set_and_check_file
-	set_compression "${parameters[2]}"
-	set_decompression "${tarball_extension}"
-	if [[ -f "${output_folder}/${tarball_output}" && "${tarball_output}" != "${tarball}" ]]; then
-		displayError "Target ${tarball_output} already exists"
-	fi
-	if [[ "${DRY_RUN}" == "1" ]]; then
-		log "  [dry-run] would convert ${tarball} → ${tarball_output}"
-		return 0
-	fi
-	do_lock
-	create_tmp_folder
-	mount_temp
-	extract_archive
-	readonly_temp
-	compress_archive
-	unmount_temp
-	delete_tmp_folder
-	do_unlock
-}
-
-cmd_export() {
-	[[ -n "${parameters[2]:-}" && -n "${parameters[3]:-}" ]] || usage_error "Missing dest folder or format" \
-		"${SCRIPT_NAME} export <index|file> <dest_folder> <format>"
-	set_and_check_file
-	output_folder="${parameters[2]}"
-	[[ -d "${output_folder}" ]] || displayError "Destination folder does not exist: ${output_folder}"
-	set_compression "${parameters[3]}"
-	set_decompression "${tarball_extension}"
-	tarball_output="${tarball_output%.*}-$(date +%Y%m%d).${tarball_output##*.}"
-	if [[ -f "${output_folder}/${tarball_output}" ]]; then
-		confirm_yes "Overwrite ${tarball_output}?" || { printf "  ${_CLR_DIM}Aborted.${_CLR_RESET}\n"; exit "${E_OK}"; }
-	fi
-	if [[ "${DRY_RUN}" == "1" ]]; then
-		log "  [dry-run] would export ${tarball} → ${output_folder}/${tarball_output}"
-		return 0
-	fi
-	do_lock
-	create_tmp_folder
-	mount_temp
-	extract_archive
-	readonly_temp
-	compress_archive
-	unmount_temp
-	delete_tmp_folder
-	do_unlock
-}
-
+# @brief Delete stage + notes after confirm_yes. No root if the folder is writable.
 cmd_delete() {
 	set_and_check_file
 	if [[ "${DRY_RUN}" == "1" ]]; then
@@ -1652,6 +1978,7 @@ cmd_delete() {
 	do_unlock
 }
 
+# @brief Rename stage + notes inside TARBALL_FOLDER.
 cmd_rename() {
 	[[ -n "${parameters[2]:-}" ]] || usage_error "Missing new name" \
 		"${SCRIPT_NAME} rename <index|file> <new_file_name>"
@@ -1672,6 +1999,7 @@ cmd_rename() {
 	do_unlock
 }
 
+# @brief Fetch official stage3 into TARBALL_FOLDER. Writes via tmp then mv.
 cmd_download() {
 	check_download_parameters
 	if [[ "${DRY_RUN}" == "1" ]]; then
@@ -1701,6 +2029,7 @@ cmd_download() {
 	fi
 	local stage_basename
 	stage_basename="$(basename "${stage_file}")"
+	_partial_path="${tmp_folder}/${stage_basename}"
 	phase_start
 	printf "  ${_CLR_BOLD_CYAN}◆${_CLR_RESET} ${_CLR_WHITE}Downloading %s${_CLR_RESET} ${_CLR_DIM}…${_CLR_RESET}\n" "${stage_basename}"
 	if ! curl_retry -o "${tmp_folder}/${stage_basename}" "${stage_base_url}/${stage_file}"; then
@@ -1746,12 +2075,14 @@ cmd_download() {
 
 	handleCommand "mv '${tmp_folder}/${stage_basename}' '${TARBALL_FOLDER}/${stage_basename}'" \
 		"Installing stage into ${TARBALL_FOLDER}"
+	_partial_path=""
+	remember_artifact "${TARBALL_FOLDER}/${stage_basename}"
 	delete_tmp_folder
 	ok "${stage_basename} → ${TARBALL_FOLDER}"
 }
 
+# @brief notes list | notes <sel> edit|delete
 cmd_notes() {
-	# notes list  |  notes <sel> edit|delete
 	if [[ "${parameters[1]:-}" == "list" ]]; then
 		section "Stages with notes"
 		local f base found=0
@@ -1767,7 +2098,7 @@ cmd_notes() {
 	fi
 	[[ -n "${parameters[1]:-}" && -n "${parameters[2]:-}" ]] || usage_error "Missing arguments" \
 		"${SCRIPT_NAME} notes list | ${SCRIPT_NAME} notes <sel> edit|delete"
-	set_and_check_file "${parameters[1]}"
+	set_and_check_file
 	local notes_file="${tarball_filename_fullpath}.notes"
 	case "${parameters[2]}" in
 		edit)
@@ -1793,6 +2124,7 @@ cmd_notes() {
 	esac
 }
 
+# @brief Dump resolved conf + runtime flags.
 cmd_config() {
 	section "Resolved configuration"
 	info "Version"        "${STORMBYTE_STAGEMANAGER_VERSION}"
@@ -1818,14 +2150,14 @@ cmd_config() {
 # -----------------------------------------------------------------------------
 # Main
 # -----------------------------------------------------------------------------
+
+# @brief Parse command, print header, validate conf, dispatch.
 main() {
-	# --version before header noise
 	if [[ "${1:-}" == "--version" || "${1:-}" == "-V" ]]; then
 		printf '%s %s\n' "${SCRIPT_NAME}" "${STORMBYTE_STAGEMANAGER_VERSION}"
 		exit "${E_OK}"
 	fi
 
-	# Re-bind parameters if main received args (functions.sh already set parameters from $0)
 	if [[ $# -gt 0 ]]; then
 		parameters=("$@")
 	fi
@@ -1837,7 +2169,6 @@ main() {
 	require_pv
 
 	local command="${parameters[0]:-}"
-	# aliases
 	case "${command}" in
 		ls) command="list" ;;
 		rm) command="delete" ;;

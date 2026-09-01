@@ -5,6 +5,64 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+[Unreleased]: https://github.com/StormBytePP/StormByte-StageManager/compare/2.0.0...HEAD
+
+## [2.0.0] - 2026-09-01
+
+Codec table, stream convert/export, root only where mounts exist, and a trap
+that only tears down what this PID created.
+
+Requires **StormByte-functions-bash ≥ 1.3.0**. Conf keys are unchanged;
+`convert` / `export` ignore `STORAGE_SYSTEM` / `STORAGE_SIZE`.
+
+### Added
+
+- Short write extensions: `.tgzip`, `.tbzip2`, `.txz`, `.tzd`. Also read
+  `.tzstd`, `.tar.zst`, and the 1.0.0 aliases.
+- `format_from_extension` / `canonical_extension` — one table for list, use,
+  convert and export.
+- Stream recompress: `pv | decompress | compress > dest.partial && mv`.
+  Same codec → `cp --reflink=auto` (fallback `cp`). Same path → no-op.
+- `use` / `rebase` re-exec `sudo -E` when `euid != 0`. Written stages and
+  FILE sidecars packed by this PID are `chown`'d to `SUDO_UID:SUDO_GID`.
+- Trap inventory (`_did_lock`, `_did_tmp`, `_did_zram`, `_partial_path`):
+  explicit umount of pkg/distfiles/repos/patches/extra and `/proc` `/dev`
+  `/sys` `/run`; no `rm -rf` of a live mountpoint; zram reset only if this
+  PID allocated the device and the mount is gone.
+- `FORCE=1` sets `CONFIRM=1` for `confirm_yes` from `functions.sh`.
+- Docs, man and completion for 2.0.0 (export has no format argument).
+
+### Changed
+
+- `STORMBYTE_STAGEMANAGER_VERSION` `1.0.0` → `2.0.0`.
+- `REQUIRE_STORMBYTE_FUNCTIONS` `1.2.0` → `1.3.0`.
+- `convert <stage> <gzip|bzip2|xz|zstd>` writes the canonical short name
+  next to the source. No extract, no tmpfs/zram, no root.
+- `export <stage> <dest_folder>` is convert with a fixed name
+  `<stem>-YYYYMMDD.txz` and codec xz. Third argument removed.
+- `set_and_check_file` sets codec from the extension; it does not call
+  `set_compression` (that rewrote the output name and rejected `.tzd`).
+- `save_changes` on rebase takes a destination path that need not exist.
+- `list` / `notes` / `config` / `convert` / `export` / `delete` / `rename` /
+  `download` run as the invoking user.
+
+### Fixed
+
+- `list` showed `.tzd` then `use 0` died with `Unknown format: tzd`.
+- Convert/export no longer unpack a multi-gigabyte tree to change codec.
+- Ctrl-C no longer `rm -rf`s a tree that failed to unmount.
+- Vendored `functions.sh` in the repo is not the source of truth; the
+  packaged helper is.
+
+### Removed
+
+- `export` format argument (`export <stage> <dir> <format>`).
+- Root requirement on commands that only touch files.
+
+[2.0.0]: https://github.com/StormBytePP/StormByte-StageManager/releases/tag/2.0.0
+
 ## [1.0.0] - 2026-08-21
 
 Initial public release of **StormByte-StageManager**: a Bash CLI for managing Gentoo stage tarballs (list, chroot, rebase, convert, export, delete, rename, download, notes), with configurable temporary storage, optional host bind mounts, ccache/sccache support (including shared FILE mode), locking, and idempotent cleanup.
