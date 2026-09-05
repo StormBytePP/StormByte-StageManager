@@ -104,6 +104,7 @@ CACHE_LOCK_DIR="${CACHE_LOCK_DIR:-/tmp/StormByte-cache-locks}"
 CCACHE_TMPFS_SIZE="${CCACHE_TMPFS_SIZE:-${STORAGE_SIZE:-8G}}"
 SCCACHE_TMPFS_SIZE="${SCCACHE_TMPFS_SIZE:-${STORAGE_SIZE:-8G}}"
 SCCACHE_CACHE_SIZE="${SCCACHE_CACHE_SIZE:-20G}"
+SCCACHE_CACHE_SIZE="${SCCACHE_CACHE_SIZE:-20G}"
 
 ccache_file="${TARBALL_FOLDER}/ccache.tbz2"
 sccache_file="${TARBALL_FOLDER}/sccache.tbz2"
@@ -1639,6 +1640,25 @@ cache_release() {
 	fi
 }
 
+# @brief Write /etc/sandbox.d/80stormbyte-sccache inside the stage tree.
+# @note Removed in clean_stage so it is not packed into the tarball.
+install_sccache_sandbox() {
+	[[ "${USE_SCCACHE:-NO}" == "YES" ]] || return 0
+	[[ -n "${tmp_folder:-}" && -n "${SCCACHE_DIR:-}" ]] || return 0
+
+	mkdir -p "${tmp_folder}/etc/sandbox.d"
+	printf '# StormByte-StageManager ephemeral — removed before pack\nSANDBOX_WRITE="%s/"\n' \
+		"${SCCACHE_DIR%/}" > "${tmp_folder}${_SCCACHE_SANDBOX_D}"
+	chmod 644 "${tmp_folder}${_SCCACHE_SANDBOX_D}"
+	info "sccache" "sandbox write grant ${_SCCACHE_SANDBOX_D} → ${SCCACHE_DIR}/"
+}
+
+# @brief Remove the ephemeral sandbox.d file so it is not saved in the tarball.
+remove_sccache_sandbox() {
+	[[ -n "${tmp_folder:-}" ]] || return 0
+	rm -f "${tmp_folder}${_SCCACHE_SANDBOX_D}"
+}
+
 # @brief BIND and/or FILE acquire for ccache/sccache inside the stage tree.
 prepare_cache() {
 	if [[ "${USE_CCACHE}" == "YES" ]]; then
@@ -1664,6 +1684,7 @@ prepare_cache() {
 			chroot "${tmp_folder}" chown -R portage:portage "${SCCACHE_DIR}" 2>/dev/null || true
 			chmod -R 770 "${tmp_folder}${SCCACHE_DIR}" 2>/dev/null || true
 		fi
+		install_sccache_sandbox
 	fi
 }
 
@@ -1742,7 +1763,7 @@ show_ccache_stats() {
 
 # @brief Print sccache --show-stats from inside the stage when the binary exists.
 show_sccache_stats() {
-	[[ "${USE_SCCACHE:-NO}" != "YES" ]] || return 0
+	[[ "${USE_SCCACHE:-NO}" != "YES" ]] && return 0
 	[[ -n "${tmp_folder:-}" && -x "${tmp_folder}/usr/bin/sccache" ]] || return 0
 
 	section "sccache statistics"
@@ -1755,6 +1776,7 @@ show_sccache_stats() {
 
 # @brief Wipe Portage temp/logs/history and stage-local pkg/distfiles copies.
 clean_stage() {
+	remove_sccache_sandbox
 	handleCommand "rm -Rf ${tmp_folder}/tmp/* ${tmp_folder}/var/tmp/portage" "Cleaning portage temp"
 	printStep "Cleaning package and distfile caches"
 	rm -Rf "${tmp_folder}${PKG_DIR}/"* "${tmp_folder}${DISTFILES_DIR}/"* > /dev/null 2>&1 || true
