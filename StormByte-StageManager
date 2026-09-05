@@ -1720,18 +1720,13 @@ save_cache() { return 0; }
 # @brief Legacy hook: do not wipe the shared FILE workspace.
 clean_caches() { return 0; }
 
-# @brief Stop sccache inside the stage and on the host before any umount.
+# @brief Stop sccache inside the stage before any umount.
 stop_sccache_server() {
 	[[ "${USE_SCCACHE:-NO}" == "YES" ]] || return 0
-	if [[ -n "${tmp_folder:-}" && -x "${tmp_folder}/usr/bin/sccache" ]]; then
-		handleCommand "chroot \"${tmp_folder}\" /usr/bin/env SCCACHE_DIR=\"${SCCACHE_DIR}\" su - portage -s /bin/bash -c '/usr/bin/sccache --stop-server' || chroot \"${tmp_folder}\" /usr/bin/env SCCACHE_DIR=\"${SCCACHE_DIR}\" /usr/bin/sccache --stop-server || true" \
-			"Stopping sccache server" || true
-	fi
-	if command -v sccache >/dev/null 2>&1; then
-		local dir="${SCCACHE_DIR}"
-		[[ "${USE_SCCACHE_FILE}" == "YES" ]] && dir="${SCCACHE_SHARE_ROOT}"
-		SCCACHE_DIR="${dir}" sccache --stop-server 2>/dev/null || true
-	fi
+	[[ -n "${tmp_folder:-}" && -x "${tmp_folder}/usr/bin/sccache" ]] || return 0
+
+	handleCommand "chroot \"${tmp_folder}\" /usr/bin/env SCCACHE_DIR=\"${SCCACHE_DIR}\" su - portage -s /bin/bash -c '/usr/bin/sccache --stop-server' || chroot \"${tmp_folder}\" /usr/bin/env SCCACHE_DIR=\"${SCCACHE_DIR}\" /usr/bin/sccache --stop-server || true" \
+		"Stopping sccache server" || true
 }
 
 # @brief Print ccache -s from inside the stage when the binary exists.
@@ -1745,25 +1740,17 @@ show_ccache_stats() {
 	fi
 }
 
-# @brief Print sccache --show-stats (stage binary, else host).
+# @brief Print sccache --show-stats from inside the stage when the binary exists.
 show_sccache_stats() {
-	[[ "${USE_SCCACHE:-NO}" != "YES" ]] && return 0
-	local env_dir="${SCCACHE_DIR}"
-	if [[ -n "${tmp_folder:-}" && -x "${tmp_folder}/usr/bin/sccache" ]]; then
-		section "sccache statistics"
-		chroot "${tmp_folder}" /usr/bin/env \
-			"SCCACHE_DIR=${SCCACHE_DIR}" \
-			"SCCACHE_CACHE_SIZE=${SCCACHE_CACHE_SIZE:-20G}" \
-			/usr/bin/sccache --show-stats 2>/dev/null || true
-		printf '\n'
-		return 0
-	fi
-	if command -v sccache >/dev/null 2>&1; then
-		[[ "${USE_SCCACHE_FILE}" == "YES" ]] && env_dir="${SCCACHE_SHARE_ROOT}"
-		section "sccache statistics"
-		SCCACHE_DIR="${env_dir}" sccache --show-stats 2>/dev/null || true
-		printf '\n'
-	fi
+	[[ "${USE_SCCACHE:-NO}" != "YES" ]] || return 0
+	[[ -n "${tmp_folder:-}" && -x "${tmp_folder}/usr/bin/sccache" ]] || return 0
+
+	section "sccache statistics"
+	chroot "${tmp_folder}" /usr/bin/env \
+		"SCCACHE_DIR=${SCCACHE_DIR}" \
+		"SCCACHE_CACHE_SIZE=${SCCACHE_CACHE_SIZE:-20G}" \
+		/usr/bin/sccache --show-stats 2>/dev/null || true
+	printf '\n'
 }
 
 # @brief Wipe Portage temp/logs/history and stage-local pkg/distfiles copies.
