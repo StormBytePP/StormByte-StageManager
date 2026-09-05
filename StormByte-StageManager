@@ -104,7 +104,7 @@ CACHE_LOCK_DIR="${CACHE_LOCK_DIR:-/tmp/StormByte-cache-locks}"
 CCACHE_TMPFS_SIZE="${CCACHE_TMPFS_SIZE:-${STORAGE_SIZE:-8G}}"
 SCCACHE_TMPFS_SIZE="${SCCACHE_TMPFS_SIZE:-${STORAGE_SIZE:-8G}}"
 SCCACHE_CACHE_SIZE="${SCCACHE_CACHE_SIZE:-20G}"
-SCCACHE_CACHE_SIZE="${SCCACHE_CACHE_SIZE:-20G}"
+readonly _SCCACHE_SANDBOX_D="/etc/sandbox.d/80stormbyte-sccache"
 
 ccache_file="${TARBALL_FOLDER}/ccache.tbz2"
 sccache_file="${TARBALL_FOLDER}/sccache.tbz2"
@@ -135,20 +135,14 @@ zstd="pzstd -${ZSTD_COMPRESSION_LEVEL}q -c"
 
 # @brief Unmount path if it is a mountpoint. Best-effort; never aborts the trap.
 # @param $1 Absolute path that may be mounted.
-# @note To be moved to functions.sh (generic umount helper).
 _umount_path() {
 	local p="$1"
 	[[ -n "${p}" ]] || return 0
 	mountpoint -q "${p}" 2>/dev/null || return 0
-	umount "${p}" 2>/dev/null || umount -l "${p}" 2>/dev/null || true
+	umount -Rl "${p}" 2>/dev/null || umount -l "${p}" 2>/dev/null || true
 }
 
 # @brief Idempotent EXIT/INT/TERM/HUP handler for this process only.
-# @note Drops stage binds, releases FILE-cache holders (last packer), umounts
-#       the tmp tree, resets zram iff this PID created it and the mount is
-#       gone, deletes a stream .partial, then drops the stage lock.
-#       Does not rm -rf a directory that is still a mountpoint.
-#       list/help/config leave every inventory flag at 0 so this is a no-op.
 emergency_cleanup() {
 	[[ "${_cleanup_done}" -eq 1 ]] && return 0
 	_cleanup_done=1
@@ -156,7 +150,11 @@ emergency_cleanup() {
 
 	cd "${current_folder}" 2>/dev/null || true
 
-	stop_sccache_server 2>/dev/null || true
+	# Silent: handleCommand is not safe from a signal trap.
+	if [[ "${USE_SCCACHE:-NO}" == "YES" && -n "${tmp_folder:-}" && -x "${tmp_folder}/usr/bin/sccache" ]]; then
+		chroot "${tmp_folder}" /usr/bin/env SCCACHE_DIR="${SCCACHE_DIR}" \
+			/usr/bin/sccache --stop-server >/dev/null 2>&1 || true
+	fi
 
 	if [[ -n "${tmp_folder:-}" ]]; then
 		_umount_path "${tmp_folder}${CCACHE_DIR:-}"
@@ -174,6 +172,7 @@ emergency_cleanup() {
 				_umount_path "${tmp_folder}${mount_path}"
 			done
 		fi
+		# rbind targets: recursive+lazy or the root tmp mount stays busy.
 		_umount_path "${tmp_folder}/proc"
 		_umount_path "${tmp_folder}/dev"
 		_umount_path "${tmp_folder}/sys"
@@ -1750,15 +1749,17 @@ stop_sccache_server() {
 		"Stopping sccache server" || true
 }
 
-# @brief Print ccache -s from inside the stage when the binary exists.
-show_ccache_stats() {
-	[[ "${USE_CCACHE}" != "YES" ]] && return 0
-	if [[ -n "${tmp_folder:-}" && -x "${tmp_folder}/usr/bin/ccache" ]]; then
-		section "ccache statistics"
-		chroot "${tmp_folder}" /usr/bin/env "CCACHE_DIR=${CCACHE_DIR}" \
-			/usr/bin/ccache -s 2>/dev/null || true
-		printf '\n'
-	fi
+# @brief Print sccache --show-stats from inside the stage when the binary exists.
+show_sccache_stats() {
+	[[ "${USE_SCCACHE:-NO}" != "YES" ]] && return 0
+	[[ -n "${tmp_folder:-}" && -x "${tmp_folder}/usr/bin/sccache" ]] || return 0
+
+	section "sccache statistics"
+	chroot "${tmp_folder}" /usr/bin/env \
+		"SCCACHE_DIR=${SCCACHE_DIR}" \
+		"SCCACHE_CACHE_SIZE=${SCCACHE_CACHE_SIZE:-20G}" \
+		/usr/bin/sccache --show-stats 2>/dev/null || true
+	printf '\n'
 }
 
 # @brief Print sccache --show-stats from inside the stage when the binary exists.
